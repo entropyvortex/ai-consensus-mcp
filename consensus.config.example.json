@@ -1,0 +1,60 @@
+{
+  "providers": {
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com/v1",
+      "apiKeyEnv": "ANTHROPIC_API_KEY"
+    },
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    },
+    "groq": {
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "apiKeyEnv": "GROQ_API_KEY"
+    }
+  },
+
+  "participants": [
+    {
+      "id": "risk",
+      "provider": "anthropic",
+      "modelId": "claude-opus-4-5",
+      "personaId": "pessimist"
+    },
+    {
+      "id": "first-principles",
+      "provider": "openai",
+      "modelId": "gpt-4o",
+      "personaId": "first-principles"
+    },
+    {
+      "id": "domain",
+      "provider": "anthropic",
+      "modelId": "claude-sonnet-4-6",
+      "personaId": "domain-expert"
+    },
+    {
+      "id": "devil",
+      "provider": "groq",
+      "modelId": "llama-3.3-70b-versatile",
+      "personaId": "devils-advocate"
+    }
+  ],
+
+  "judge": {
+    "provider": "anthropic",
+    "modelId": "claude-opus-4-5"
+  },
+
+  "defaults": {
+    "maxRounds": 4,
+    "earlyStop": true,
+    "convergenceDelta": 3,
+    "disagreementThreshold": 20,
+    "blindFirstRound": true,
+    "randomizeOrder": true,
+    "participantTemperature": 0.7,
+    "maxOutputTokens": 1500,
+    "useJudge": true
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "consensus-mcp",
+  "version": "0.9.0",
+  "description": "Stdio MCP server exposing the Consensus Validation Protocol as a single `consensus` tool. Thin wrapper over @entropyvortex/consensus-core.",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "consensus",
+    "cvp",
+    "multi-agent",
+    "llm",
+    "grok",
+    "claude",
+    "roundtable",
+    "entropyvortex"
+  ],
+  "license": "MIT",
+  "author": "Marcelo Ceccon <https://github.com/marceloceccon>",
+  "homepage": "https://github.com/entropyvortex/consensus-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/entropyvortex/consensus-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/entropyvortex/consensus-mcp/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "consensus-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "consensus.config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "clean": "rm -rf dist coverage *.tsbuildinfo",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run clean && npm run build && npm run test"
+  },
+  "dependencies": {
+    "@entropyvortex/consensus-core": "^0.9.0",
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@vitest/coverage-v8": "^2.1.8",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
