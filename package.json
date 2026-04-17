@@ -1,6 +1,6 @@
 {
   "name": "ai-consensus-mcp",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Stdio MCP server exposing the Consensus Validation Protocol as a single `consensus` tool. Thin wrapper over ai-consensus-core.",
   "keywords": [
     "mcp",
