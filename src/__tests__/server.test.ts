@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { PERSONAS } from "@entropyvortex/ai-consensus-core";
+import { PERSONAS } from "ai-consensus-core";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../server.js";
 import type { LoadedConfig } from "../config.js";
 

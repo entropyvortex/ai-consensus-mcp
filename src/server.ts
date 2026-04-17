@@ -14,7 +14,7 @@ import {
   type ConsensusOptions,
   type ConsensusResult,
   type Participant,
-} from "@entropyvortex/ai-consensus-core";
+} from "ai-consensus-core";
 import type { LoadedConfig } from "./config.js";
 import { createOpenAICompatibleCaller } from "./adapter.js";
 import { wireEngineProgress, type SendNotification } from "./progress.js";

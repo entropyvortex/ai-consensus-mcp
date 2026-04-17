@@ -13,7 +13,7 @@ import {
   getPersonaById,
   type Participant,
   type Persona,
-} from "@entropyvortex/ai-consensus-core";
+} from "ai-consensus-core";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 

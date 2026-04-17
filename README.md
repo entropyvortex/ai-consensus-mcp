@@ -6,14 +6,14 @@
 [![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
 [![license](https://img.shields.io/npm/l/ai-consensus-mcp)](./LICENSE)
 
-Thin wrapper over [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One tool, one config file, zero drama.
+Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One tool, one config file, zero drama.
 
 ## What it gives you
 
 - **One MCP tool: `consensus`.** Point it at a list of models + personas and run a multi-round debate.
 - **Any OpenAI-compatible provider.** xAI Grok, Anthropic (via OpenAI-compat endpoint), OpenAI, Groq, Together, Fireworks, or your private gateway. One adapter, configurable per participant.
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.
-- **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `@entropyvortex/ai-consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
+- **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `ai-consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
 
 ## The protocol
 
@@ -227,7 +227,7 @@ Every structured engine event is forwarded as an MCP `notifications/progress` me
 ## Limits and non-goals
 
 - **No persistence.** Every tool call is a fresh run. If you want history, record `structuredContent` on the host side.
-- **No HTTP transport.** Stdio only. For HTTP/SSE, wrap [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) directly.
+- **No HTTP transport.** Stdio only. For HTTP/SSE, wrap [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) directly.
 - **No token-budget enforcement.** `maxOutputTokens` is advisory per call; put usage alerts on your provider dashboards.
 - **No multi-run scheduling.** One run per call, sequential if the host queues them.
 
@@ -252,7 +252,7 @@ This package is the "anywhere" most people care about first: a stdio MCP server 
 
 ## See also
 
-- [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) — the underlying library. Use it directly if you need HTTP transport, custom schedulers, or deeper integration.
+- [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) — the underlying library. Use it directly if you need HTTP transport, custom schedulers, or deeper integration.
 
 ## License
 

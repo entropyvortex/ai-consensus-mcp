@@ -7,7 +7,7 @@
 // NOT forwarded — they fire hundreds of times per round and would
 // flood the notification channel.
 
-import type { ConsensusEngine } from "@entropyvortex/ai-consensus-core";
+import type { ConsensusEngine } from "ai-consensus-core";
 
 /**
  * Shape of the `sendNotification` callback that the MCP SDK hands to

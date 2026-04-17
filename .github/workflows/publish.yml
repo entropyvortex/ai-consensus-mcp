@@ -19,7 +19,7 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Resolves @entropyvortex/ai-consensus-core from the registry — that
+      # Resolves ai-consensus-core from the registry — that
       # package must already be published at the version pinned in package.json.
       - run: npm install
       - run: npm run typecheck
