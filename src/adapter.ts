@@ -7,7 +7,7 @@
 // Bearer-auth, SSE-streaming adapter covers the whole surface and
 // keeps this package dependency-light (no provider SDKs).
 
-import type { ModelCaller, TokenUsage } from "@entropyvortex/consensus-core";
+import type { ModelCaller, TokenUsage } from "@entropyvortex/ai-consensus-core";
 import type { LoadedConfig, ResolvedProvider } from "./config.js";
 
 /**
@@ -20,13 +20,13 @@ export function createOpenAICompatibleCaller(config: LoadedConfig): ModelCaller 
     const providerId = config.providerByParticipant[req.participantId];
     if (!providerId) {
       throw new Error(
-        `consensus-mcp: no provider mapping for participant "${req.participantId}".`,
+        `ai-consensus-mcp: no provider mapping for participant "${req.participantId}".`,
       );
     }
     const provider = config.providers[providerId];
     if (!provider) {
       throw new Error(
-        `consensus-mcp: provider "${providerId}" resolved for "${req.participantId}" was not loaded.`,
+        `ai-consensus-mcp: provider "${providerId}" resolved for "${req.participantId}" was not loaded.`,
       );
     }
 

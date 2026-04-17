@@ -13,7 +13,7 @@ import {
   getPersonaById,
   type Participant,
   type Persona,
-} from "@entropyvortex/consensus-core";
+} from "@entropyvortex/ai-consensus-core";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -120,7 +120,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     text = await readFile(absolute, "utf8");
   } catch (err) {
     throw new Error(
-      `consensus-mcp: could not read config at ${absolute}: ${
+      `ai-consensus-mcp: could not read config at ${absolute}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -131,7 +131,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     parsed = JSON.parse(text);
   } catch (err) {
     throw new Error(
-      `consensus-mcp: config at ${absolute} is not valid JSON: ${
+      `ai-consensus-mcp: config at ${absolute} is not valid JSON: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
@@ -140,7 +140,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
   const validated = RawConfigSchema.safeParse(parsed);
   if (!validated.success) {
     throw new Error(
-      `consensus-mcp: config at ${absolute} failed validation:\n${formatZodError(validated.error)}`,
+      `ai-consensus-mcp: config at ${absolute} failed validation:\n${formatZodError(validated.error)}`,
     );
   }
   const raw = validated.data;
@@ -151,7 +151,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     const apiKey = process.env[cfg.apiKeyEnv];
     if (!apiKey) {
       throw new Error(
-        `consensus-mcp: provider "${id}" requires env var ${cfg.apiKeyEnv} but it is not set.`,
+        `ai-consensus-mcp: provider "${id}" requires env var ${cfg.apiKeyEnv} but it is not set.`,
       );
     }
     providers[id] = {
@@ -169,20 +169,20 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
 
   for (const p of raw.participants) {
     if (participantIds.has(p.id)) {
-      throw new Error(`consensus-mcp: duplicate participant id "${p.id}".`);
+      throw new Error(`ai-consensus-mcp: duplicate participant id "${p.id}".`);
     }
     participantIds.add(p.id);
 
     if (!providers[p.provider]) {
       throw new Error(
-        `consensus-mcp: participant "${p.id}" references unknown provider "${p.provider}". Known: ${Object.keys(providers).join(", ") || "(none)"}.`,
+        `ai-consensus-mcp: participant "${p.id}" references unknown provider "${p.provider}". Known: ${Object.keys(providers).join(", ") || "(none)"}.`,
       );
     }
 
     const persona = getPersonaById(p.personaId);
     if (!persona) {
       throw new Error(
-        `consensus-mcp: participant "${p.id}" references unknown persona id "${p.personaId}". Known: ${PERSONAS.map(
+        `ai-consensus-mcp: participant "${p.id}" references unknown persona id "${p.personaId}". Known: ${PERSONAS.map(
           (x) => x.id,
         ).join(", ")}.`,
       );
@@ -197,7 +197,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
   if (raw.judge) {
     if (!providers[raw.judge.provider]) {
       throw new Error(
-        `consensus-mcp: judge references unknown provider "${raw.judge.provider}".`,
+        `ai-consensus-mcp: judge references unknown provider "${raw.judge.provider}".`,
       );
     }
     judge = {

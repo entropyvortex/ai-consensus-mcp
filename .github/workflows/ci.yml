@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      # No lockfile committed; consensus-core must be published on npm for this
+      # No lockfile committed; ai-consensus-core must be published on npm for this
       # to resolve. Uses `npm install` (not `npm ci`) accordingly.
       - run: npm install
       - run: npm run typecheck

@@ -1,23 +1,23 @@
-# consensus-mcp
+# ai-consensus-mcp
 
 > A minimal stdio [Model Context Protocol](https://modelcontextprotocol.io) server that exposes the Consensus Validation Protocol as a single `consensus` tool.
 > Give Claude Code, Cursor, Windsurf — or any MCP host — a real multi-model roundtable.
 
-[![npm](https://img.shields.io/npm/v/consensus-mcp)](https://www.npmjs.com/package/consensus-mcp)
-[![license](https://img.shields.io/npm/l/consensus-mcp)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
+[![license](https://img.shields.io/npm/l/ai-consensus-mcp)](./LICENSE)
 
-Thin wrapper over [`@entropyvortex/consensus-core`](https://github.com/entropyvortex/consensus-core). One tool, one config file, zero drama.
+Thin wrapper over [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One tool, one config file, zero drama.
 
 ## What it gives you
 
 - **One MCP tool: `consensus`.** Point it at a list of models + personas and run a multi-round debate.
 - **Any OpenAI-compatible provider.** xAI Grok, Anthropic (via OpenAI-compat endpoint), OpenAI, Groq, Together, Fireworks, or your private gateway. One adapter, configurable per participant.
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.
-- **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `@entropyvortex/consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
+- **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `@entropyvortex/ai-consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
 
 ## The protocol
 
-For the actual protocol — rounds, phases, prompts, scoring — see the [consensus-core protocol diagram](https://github.com/entropyvortex/consensus-core#protocol-diagram). This README covers the server surface only.
+For the actual protocol — rounds, phases, prompts, scoring — see the [ai-consensus-core protocol diagram](https://github.com/entropyvortex/ai-consensus-core#protocol-diagram). This README covers the server surface only.
 
 ## Install
 
@@ -25,17 +25,17 @@ Via npm:
 
 ```bash
 # Globally, for use as a binary
-npm install -g consensus-mcp
+npm install -g ai-consensus-mcp
 
 # Or as a project dependency
-npm install consensus-mcp
+npm install ai-consensus-mcp
 ```
 
 Or clone and run:
 
 ```bash
-git clone https://github.com/entropyvortex/consensus-mcp.git
-cd consensus-mcp
+git clone https://github.com/entropyvortex/ai-consensus-mcp.git
+cd ai-consensus-mcp
 npm install
 npm run build
 ```
@@ -113,13 +113,13 @@ Every field not in that list is rejected by the config loader — typos fail lou
 export GROK_API_KEY=xai-...
 export ANTHROPIC_API_KEY=sk-ant-...
 
-consensus-mcp --config ./consensus.config.json
+ai-consensus-mcp --config ./consensus.config.json
 ```
 
 The server speaks JSON-RPC over stdio. A ready line like:
 
 ```
-consensus-mcp ready — 3 participant(s) from 2 provider(s), judge=grok-4 (config: /abs/consensus.config.json)
+ai-consensus-mcp ready — 3 participant(s) from 2 provider(s), judge=grok-4 (config: /abs/consensus.config.json)
 ```
 
 is written to **stderr** on startup; stdout is reserved for the MCP protocol stream.
@@ -134,7 +134,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 {
   "mcpServers": {
     "consensus": {
-      "command": "consensus-mcp",
+      "command": "ai-consensus-mcp",
       "args": ["--config", "/absolute/path/to/consensus.config.json"],
       "env": {
         "GROK_API_KEY": "xai-...",
@@ -145,7 +145,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
 }
 ```
 
-(If you didn't install globally, replace `"command": "consensus-mcp"` with `"command": "node"` and point `args` at `/path/to/consensus-mcp/dist/index.js`.)
+(If you didn't install globally, replace `"command": "ai-consensus-mcp"` with `"command": "node"` and point `args` at `/path/to/ai-consensus-mcp/dist/index.js`.)
 
 Restart Claude Desktop. You should see a `consensus` tool become available.
 
@@ -154,14 +154,14 @@ Restart Claude Desktop. You should see a `consensus` tool become available.
 ```bash
 claude mcp add consensus \
   --scope user \
-  -- consensus-mcp --config /absolute/path/to/consensus.config.json
+  -- ai-consensus-mcp --config /absolute/path/to/consensus.config.json
 ```
 
 Or edit `~/.claude.json` directly with the same `command` / `args` / `env` shape.
 
 ### Cursor, Windsurf, and other hosts
 
-Point them at `consensus-mcp --config <path>/consensus.config.json` with the relevant provider API keys in the environment. Stdio transport only.
+Point them at `ai-consensus-mcp --config <path>/consensus.config.json` with the relevant provider API keys in the environment. Stdio transport only.
 
 ## The `consensus` tool
 
@@ -227,7 +227,7 @@ Every structured engine event is forwarded as an MCP `notifications/progress` me
 ## Limits and non-goals
 
 - **No persistence.** Every tool call is a fresh run. If you want history, record `structuredContent` on the host side.
-- **No HTTP transport.** Stdio only. For HTTP/SSE, wrap [`@entropyvortex/consensus-core`](https://github.com/entropyvortex/consensus-core) directly.
+- **No HTTP transport.** Stdio only. For HTTP/SSE, wrap [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) directly.
 - **No token-budget enforcement.** `maxOutputTokens` is advisory per call; put usage alerts on your provider dashboards.
 - **No multi-run scheduling.** One run per call, sequential if the host queues them.
 
@@ -236,8 +236,8 @@ If any of these become the thing you need most, the core library is the right pl
 ## Development
 
 ```bash
-git clone https://github.com/entropyvortex/consensus-mcp.git
-cd consensus-mcp
+git clone https://github.com/entropyvortex/ai-consensus-mcp.git
+cd ai-consensus-mcp
 npm install
 npm run test        # vitest — config loader + MCP handshake integration
 npm run build
@@ -252,7 +252,7 @@ This package is the "anywhere" most people care about first: a stdio MCP server 
 
 ## See also
 
-- [`@entropyvortex/consensus-core`](https://github.com/entropyvortex/consensus-core) — the underlying library. Use it directly if you need HTTP transport, custom schedulers, or deeper integration.
+- [`@entropyvortex/ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) — the underlying library. Use it directly if you need HTTP transport, custom schedulers, or deeper integration.
 
 ## License
 

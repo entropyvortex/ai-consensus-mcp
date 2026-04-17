@@ -57,7 +57,7 @@ const VALID_CONFIG: ValidConfig = {
 
 describe("loadConfig", () => {
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "consensus-mcp-test-"));
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-test-"));
     vi.stubEnv("TEST_ANTHROPIC_KEY", "test-anthropic");
     vi.stubEnv("TEST_OPENAI_KEY", "test-openai");
   });

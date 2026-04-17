@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─────────────────────────────────────────────────────────────
-// consensus-mcp — CLI entry point
+// ai-consensus-mcp — CLI entry point
 // ─────────────────────────────────────────────────────────────
 // Stdio MCP server. Loads a JSON config, exposes one `consensus`
 // tool, forwards engine events as MCP progress notifications.
@@ -44,8 +44,8 @@ const HELP_TEXT = `
 ${SERVER_NAME} v${SERVER_VERSION}
 
 Usage:
-  consensus-mcp --config <path>
-  CONSENSUS_CONFIG=<path> consensus-mcp
+  ai-consensus-mcp --config <path>
+  CONSENSUS_CONFIG=<path> ai-consensus-mcp
 
 Flags:
   -c, --config <path>   Path to a JSON config file describing providers,
@@ -58,7 +58,7 @@ Environment:
   <PROVIDER_API_KEY>    Each provider in the config declares an
                         \`apiKeyEnv\`; that env var must be set.
 
-See packages/consensus-mcp/README.md for host integration examples
+See packages/ai-consensus-mcp/README.md for host integration examples
 (Claude Desktop, Claude Code, etc.) and consensus.config.example.json
 for a complete config template.
 `;
@@ -66,7 +66,7 @@ for a complete config template.
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed instanceof Error) {
-    process.stderr.write(`consensus-mcp: ${parsed.message}\n${HELP_TEXT}\n`);
+    process.stderr.write(`ai-consensus-mcp: ${parsed.message}\n${HELP_TEXT}\n`);
     process.exit(2);
   }
   if (parsed.help) {
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const configPath = parsed.configPath ?? process.env["CONSENSUS_CONFIG"];
   if (!configPath) {
     process.stderr.write(
-      `consensus-mcp: a config path is required (--config <path> or CONSENSUS_CONFIG env).\n${HELP_TEXT}\n`,
+      `ai-consensus-mcp: a config path is required (--config <path> or CONSENSUS_CONFIG env).\n${HELP_TEXT}\n`,
     );
     process.exit(2);
   }
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   const config = await loadConfig(configPath);
 
   const summary =
-    `consensus-mcp ready — ${config.participants.length} participant(s) from ${Object.keys(config.providers).length} provider(s)` +
+    `ai-consensus-mcp ready — ${config.participants.length} participant(s) from ${Object.keys(config.providers).length} provider(s)` +
     (config.judge ? `, judge=${config.judge.modelId}` : ", no judge") +
     ` (config: ${config.sourcePath})`;
   process.stderr.write(`${summary}\n`);
@@ -99,7 +99,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   const shutdown = (reason: string) => {
-    process.stderr.write(`consensus-mcp: shutting down (${reason})\n`);
+    process.stderr.write(`ai-consensus-mcp: shutting down (${reason})\n`);
     server
       .close()
       .catch(() => undefined)
@@ -111,6 +111,6 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`consensus-mcp: fatal: ${msg}\n`);
+  process.stderr.write(`ai-consensus-mcp: fatal: ${msg}\n`);
   process.exit(1);
 });

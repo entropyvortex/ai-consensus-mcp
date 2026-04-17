@@ -14,12 +14,12 @@ import {
   type ConsensusOptions,
   type ConsensusResult,
   type Participant,
-} from "@entropyvortex/consensus-core";
+} from "@entropyvortex/ai-consensus-core";
 import type { LoadedConfig } from "./config.js";
 import { createOpenAICompatibleCaller } from "./adapter.js";
 import { wireEngineProgress, type SendNotification } from "./progress.js";
 
-export const SERVER_NAME = "consensus-mcp";
+export const SERVER_NAME = "ai-consensus-mcp";
 export const SERVER_VERSION = "0.9.0";
 
 // ── Tool input schema ────────────────────────────────────────
