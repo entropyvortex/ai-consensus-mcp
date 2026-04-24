@@ -1,6 +1,6 @@
 {
   "name": "ai-consensus-mcp",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Stdio MCP server exposing the Consensus Validation Protocol as a single `consensus` tool. Thin wrapper over ai-consensus-core.",
   "keywords": [
     "mcp",
@@ -48,7 +48,7 @@
     "prepublishOnly": "npm run clean && npm run build && npm run test"
   },
   "dependencies": {
-    "ai-consensus-core": "^0.9.0",
+    "ai-consensus-core": "^0.10.0",
     "@modelcontextprotocol/sdk": "^1.13.0",
     "zod": "^3.24.1"
   },

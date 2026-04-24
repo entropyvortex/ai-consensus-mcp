@@ -8,12 +8,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import {
-  PERSONAS,
-  getPersonaById,
-  type Participant,
-  type Persona,
-} from "ai-consensus-core";
+import type { Participant, Persona } from "ai-consensus-core";
+import { PERSONAS, getPersonaById } from "./personas.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 

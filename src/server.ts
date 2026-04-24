@@ -10,7 +10,6 @@ import {
 import { z } from "zod";
 import {
   ConsensusEngine,
-  PERSONAS,
   type ConsensusOptions,
   type ConsensusResult,
   type Participant,
@@ -20,7 +19,7 @@ import { createOpenAICompatibleCaller } from "./adapter.js";
 import { wireEngineProgress, type SendNotification } from "./progress.js";
 
 export const SERVER_NAME = "ai-consensus-mcp";
-export const SERVER_VERSION = "0.9.0";
+export const SERVER_VERSION = "0.10.0";
 
 // ── Tool input schema ────────────────────────────────────────
 
