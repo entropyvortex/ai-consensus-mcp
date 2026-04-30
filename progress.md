@@ -107,6 +107,7 @@ When unblocked: tool composition (`src/tools/upstream/*`), built-in tools, execu
 ## Phase 5 — Release hardening & 1.0 (pending)
 
 When Phase 3 lands and the wrapper is ready to cut a stable release:
+
 - Security review (subprocess spawn surface, tool argument injection, env-var leakage)
 - Perf benchmark (4-participant, 4-round debate with tools — <5% regression budget)
 - Opt-in telemetry (`CONSENSUS_TELEMETRY=1`)

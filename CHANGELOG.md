@@ -16,6 +16,7 @@ Five task-tuned preset tools, each registered as a separate MCP tool so hosts su
 - `consensus_debug_postmortem` — pessimist + domain-expert + first-principles + scientific-skeptic, low temp (0.3), 3 rounds; judge produces a postmortem report with remediation items.
 
 Internals:
+
 - `src/presets/{types,registry,resolve-panel,build-input-schema,format}.ts`
 - `src/presets/definitions/*.ts` — five preset definitions
 - `Preset` interface: `id`, `toolName`, `title`, `description`, `panel`, `defaults`, `judgeSystemPrompt`, `extraInputs?`, `formatResult?`, `toolBindings?`
