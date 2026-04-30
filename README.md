@@ -60,7 +60,7 @@ npm run build
 Copy the example and edit it:
 
 ```bash
-cp consensus.config.example.json ./consensus.config.json
+cp consensus.config.example.json ~/.consensus.config.json
 ```
 
 Minimal shape:
