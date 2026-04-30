@@ -1,8 +1,13 @@
 # ai-consensus-mcp — implementation progress
 
-**Status:** Phases 0, 1, 4 complete locally. Phase 2 PR open. Phase 3 blocked. Phase 5 pending.
+**Status:** Phases 0, 1, 4 PR open. Phase 2 PR open. Phase 3 blocked. Phase 5 pending.
 **Last update:** 2026-04-30
-**Working branch:** `main` (will branch before pushing wrapper changes)
+**Working branch:** `feat/presets-and-installer` (PR open against `main`)
+
+## PRs awaiting review
+
+- **Wrapper (this repo):** https://github.com/entropyvortex/ai-consensus-mcp/pull/1 — presets + installer + CLI subcommands
+- **Upstream (ai-consensus-core):** https://github.com/entropyvortex/ai-consensus-core/pull/3 — tool-calling primitives (0.11.0)
 
 This file tracks the multi-phase implementation of presets, tool-calling, and IDE onboarding. Updated at every meaningful step.
 
@@ -112,7 +117,7 @@ When Phase 3 lands and the wrapper is ready to cut a stable release:
 
 ## Current activity
 
-- Wrapping up Phase 4. About to branch the consensus-mcp repo, commit the Phase 0 / 1 / 4 work as separate logical commits, push, and open a PR.
+- Both PRs are open and awaiting review. Pausing here — Phase 5 (release hardening) is more productive once Phase 3 lands and the wrapper has a final feature surface to harden.
 
 ---
 
