@@ -31,6 +31,14 @@ jobs:
       # No lockfile committed; ai-consensus-core must be published on npm for this
       # to resolve. Uses `npm install` (not `npm ci`) accordingly.
       - run: npm install
-      - run: npm run typecheck
-      - run: npm run test
+
+      # `check` runs typecheck + lint + format:check + tests with coverage thresholds.
+      # Coverage thresholds are anchored at the current baseline (see vitest.config.ts)
+      # and ratchet up phase by phase as new tested modules land.
+      - run: npm run check
+
+      # Build then run the stdio handshake smoke test against the built binary.
+      # Verifies the server starts, advertises tools, and shuts down cleanly
+      # without any provider API keys.
       - run: npm run build
+      - run: npm run test:smoke

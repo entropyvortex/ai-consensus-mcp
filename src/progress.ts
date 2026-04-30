@@ -61,22 +61,18 @@ export function wireEngineProgress(opts: WireProgressOptions): () => void {
         `Round ${e.round}/${maxRounds} — ${e.label} (${e.blind ? "blind, parallel" : "sequential"}) starting`,
       );
     },
-    participantStart: (
-      e: Parameters<Parameters<typeof engine.on<"participantStart">>[1]>[0],
-    ) => {
+    participantStart: (e: Parameters<Parameters<typeof engine.on<"participantStart">>[1]>[0]) => {
       notify(`  ${e.participantId} (${e.modelId}) thinking…`);
     },
     participantComplete: (
       e: Parameters<Parameters<typeof engine.on<"participantComplete">>[1]>[0],
     ) => {
-      const tag = e.response.error ? `ERROR: ${e.response.error}` : `confidence=${e.response.confidence}`;
-      notify(
-        `  ${e.response.participantId} done — ${tag} (${e.response.durationMs}ms)`,
-      );
+      const tag = e.response.error
+        ? `ERROR: ${e.response.error}`
+        : `confidence=${e.response.confidence}`;
+      notify(`  ${e.response.participantId} done — ${tag} (${e.response.durationMs}ms)`);
     },
-    confidenceUpdate: (
-      e: Parameters<Parameters<typeof engine.on<"confidenceUpdate">>[1]>[0],
-    ) => {
+    confidenceUpdate: (e: Parameters<Parameters<typeof engine.on<"confidenceUpdate">>[1]>[0]) => {
       notify(
         `  running avg round ${e.round}: ${e.runningAverage.toFixed(1)} (last: ${e.participantId}=${e.confidence})`,
       );
@@ -84,13 +80,9 @@ export function wireEngineProgress(opts: WireProgressOptions): () => void {
     disagreementDetected: (
       e: Parameters<Parameters<typeof engine.on<"disagreementDetected">>[1]>[0],
     ) => {
-      notify(
-        `  ⚠ disagreement: ${e.disagreement.label} (Δ=${e.disagreement.severity})`,
-      );
+      notify(`  ⚠ disagreement: ${e.disagreement.label} (Δ=${e.disagreement.severity})`);
     },
-    roundComplete: (
-      e: Parameters<Parameters<typeof engine.on<"roundComplete">>[1]>[0],
-    ) => {
+    roundComplete: (e: Parameters<Parameters<typeof engine.on<"roundComplete">>[1]>[0]) => {
       notify(
         `Round ${e.round} complete — score=${e.score}, avg=${e.averageConfidence.toFixed(1)}, σ=${e.stddev.toFixed(1)}, disagreements=${e.disagreements.length}`,
         1,
@@ -99,22 +91,13 @@ export function wireEngineProgress(opts: WireProgressOptions): () => void {
     earlyStop: (e: Parameters<Parameters<typeof engine.on<"earlyStop">>[1]>[0]) => {
       notify(`✓ Early stop at round ${e.round}: ${e.reason}`);
     },
-    synthesisStart: (
-      e: Parameters<Parameters<typeof engine.on<"synthesisStart">>[1]>[0],
-    ) => {
+    synthesisStart: (e: Parameters<Parameters<typeof engine.on<"synthesisStart">>[1]>[0]) => {
       notify(`Judge synthesis starting (${e.modelId})…`);
     },
-    synthesisComplete: (
-      e: Parameters<Parameters<typeof engine.on<"synthesisComplete">>[1]>[0],
-    ) => {
-      notify(
-        `Judge synthesis complete (confidence=${e.synthesis.judgeConfidence})`,
-        1,
-      );
+    synthesisComplete: (e: Parameters<Parameters<typeof engine.on<"synthesisComplete">>[1]>[0]) => {
+      notify(`Judge synthesis complete (confidence=${e.synthesis.judgeConfidence})`, 1);
     },
-    finalResult: (
-      e: Parameters<Parameters<typeof engine.on<"finalResult">>[1]>[0],
-    ) => {
+    finalResult: (e: Parameters<Parameters<typeof engine.on<"finalResult">>[1]>[0]) => {
       notify(
         `Consensus complete — finalScore=${e.result.finalScore}, rounds=${e.result.roundsCompleted}, stopReason=${e.result.stopReason}`,
       );

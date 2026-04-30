@@ -233,13 +233,9 @@ function buildParticipant(
   persona: Persona,
   label: string | undefined,
 ): Participant {
-  return label === undefined
-    ? { id, modelId, persona }
-    : { id, modelId, persona, label };
+  return label === undefined ? { id, modelId, persona } : { id, modelId, persona, label };
 }
 
 function formatZodError(err: z.ZodError): string {
-  return err.errors
-    .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
-    .join("\n");
+  return err.errors.map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`).join("\n");
 }
