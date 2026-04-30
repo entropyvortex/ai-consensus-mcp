@@ -8,22 +8,31 @@
 // keeps this package dependency-light (no provider SDKs).
 
 import type { ModelCaller, TokenUsage } from "ai-consensus-core";
-import type { LoadedConfig, ResolvedProvider } from "./config.js";
+import type { ResolvedProvider } from "./config.js";
 
 /**
  * Build a ModelCaller that routes each request to the correct provider
- * based on the config's `providerByParticipant` map. "judge" is a
- * synthetic participant id that the engine uses for the synthesizer.
+ * based on a `providerByParticipant` map. "judge" is a synthetic
+ * participant id that the engine uses for the synthesizer.
+ *
+ * The provider map is taken per-call (not closed over the full LoadedConfig)
+ * because preset runs may resolve a different participant set than the user's
+ * raw config — the map handed in here is the authoritative routing for *this*
+ * specific run.
  */
-export function createOpenAICompatibleCaller(config: LoadedConfig): ModelCaller {
+export function createOpenAICompatibleCaller(args: {
+  providers: Record<string, ResolvedProvider>;
+  providerByParticipant: Record<string, string>;
+}): ModelCaller {
+  const { providers, providerByParticipant } = args;
   return async (req) => {
-    const providerId = config.providerByParticipant[req.participantId];
+    const providerId = providerByParticipant[req.participantId];
     if (!providerId) {
       throw new Error(
         `ai-consensus-mcp: no provider mapping for participant "${req.participantId}".`,
       );
     }
-    const provider = config.providers[providerId];
+    const provider = providers[providerId];
     if (!provider) {
       throw new Error(
         `ai-consensus-mcp: provider "${providerId}" resolved for "${req.participantId}" was not loaded.`,
@@ -55,9 +64,9 @@ interface CallParams {
 }
 
 interface StreamChunk {
-  choices?: Array<{
+  choices?: {
     delta?: { content?: string | null };
-  }>;
+  }[];
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
@@ -69,8 +78,7 @@ async function callOpenAICompatible(params: CallParams): Promise<{
   content: string;
   usage?: TokenUsage;
 }> {
-  const { provider, modelId, system, user, temperature, maxOutputTokens, signal, onToken } =
-    params;
+  const { provider, modelId, system, user, temperature, maxOutputTokens, signal, onToken } = params;
 
   const url = `${provider.baseUrl}/chat/completions`;
   const headers: Record<string, string> = {
@@ -108,7 +116,7 @@ async function callOpenAICompatible(params: CallParams): Promise<{
     );
   }
 
-  const reader = res.body.getReader();
+  const reader = res.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
@@ -163,9 +171,7 @@ async function callOpenAICompatible(params: CallParams): Promise<{
   }
 
   if (content.length === 0) {
-    throw new Error(
-      `${provider.id}: empty response from ${modelId} (no content chunks received).`,
-    );
+    throw new Error(`${provider.id}: empty response from ${modelId} (no content chunks received).`);
   }
 
   return usage ? { content, usage } : { content };

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.entropyvortex/ai-consensus-mcp",
+  "description": "Stdio MCP server exposing the Consensus Validation Protocol — multi-model debate with confidence-weighted scoring, disagreement detection, and an optional judge synthesizer. Generic `consensus` tool plus task-tuned presets for code review, architecture debate, research synthesis, decision support, and incident postmortem.",
+  "version": "0.10.0",
+  "repository": {
+    "url": "https://github.com/entropyvortex/ai-consensus-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "ai-consensus-mcp",
+      "version": "0.10.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "name": "subcommand",
+          "value": "serve",
+          "description": "Run the MCP server (vs. the `install` subcommand)."
+        },
+        {
+          "type": "named",
+          "name": "--config",
+          "description": "Absolute path to your consensus.config.json (providers, participants, optional judge).",
+          "isRequired": true,
+          "format": "filepath"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "GROK_API_KEY",
+          "description": "xAI API key. Required if your config declares an `xai` provider.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "description": "Anthropic API key. Required if your config declares an `anthropic` provider.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "description": "OpenAI API key. Required if your config declares an `openai` provider.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "GROQ_API_KEY",
+          "description": "Groq API key. Required if your config declares a `groq` provider.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "CONSENSUS_CONFIG",
+          "description": "Fallback config path if --config is omitted.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

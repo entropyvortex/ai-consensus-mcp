@@ -5,6 +5,7 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { PERSONAS } from "../personas.js";
 import { createMcpServer, SERVER_NAME, SERVER_VERSION } from "../server.js";
 import type { LoadedConfig } from "../config.js";
+import { BUILT_IN_PRESETS } from "../presets/definitions/index.js";
 
 function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   const base: LoadedConfig = {
@@ -38,21 +39,75 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
   return { ...base, ...overrides };
 }
 
+/** Config that's deliberately too narrow for `code_review` to run — only
+ *  pessimist + vc-specialist, neither domain-expert nor first-principles. */
+function makeUnrunnableForCodeReviewConfig(): LoadedConfig {
+  const pessimist = PERSONAS.find((p) => p.id === "pessimist")!;
+  const vc = PERSONAS.find((p) => p.id === "vc-specialist")!;
+  return {
+    sourcePath: "/fake",
+    providers: {
+      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+    },
+    participants: [
+      { id: "p_pessimist", modelId: "model-a", persona: pessimist },
+      { id: "p_vc", modelId: "model-b", persona: vc },
+    ],
+    providerByParticipant: { p_pessimist: "test", p_vc: "test" },
+    judge: undefined,
+    defaults: {
+      maxRounds: 4,
+      earlyStop: true,
+      convergenceDelta: 3,
+      disagreementThreshold: 20,
+      blindFirstRound: true,
+      randomizeOrder: true,
+      participantTemperature: 0.7,
+      maxOutputTokens: 1500,
+      useJudge: false,
+    },
+  };
+}
+
+/** Config with all 7 personas wired so every preset is runnable. */
+function makeFullPanelConfig(): LoadedConfig {
+  const participants = PERSONAS.map((p, i) => ({
+    id: `p_${p.id}`,
+    modelId: `model-${i}`,
+    persona: p,
+  }));
+  const providerByParticipant = Object.fromEntries(participants.map((p) => [p.id, "test"]));
+  return {
+    sourcePath: "/fake",
+    providers: {
+      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+    },
+    participants,
+    providerByParticipant,
+    judge: undefined,
+    defaults: {
+      maxRounds: 4,
+      earlyStop: true,
+      convergenceDelta: 3,
+      disagreementThreshold: 20,
+      blindFirstRound: true,
+      randomizeOrder: true,
+      participantTemperature: 0.7,
+      maxOutputTokens: 1500,
+      useJudge: false,
+    },
+  };
+}
+
 async function connect(config: LoadedConfig): Promise<{
   server: Server;
   client: Client;
   close: () => Promise<void>;
 }> {
   const server = createMcpServer(config);
-  const client = new Client(
-    { name: "test-client", version: "0.0.0" },
-    { capabilities: {} },
-  );
+  const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return {
     server,
     client,
@@ -85,15 +140,21 @@ describe("createMcpServer — registration", () => {
     expect(caps?.tools).toBeDefined();
   });
 
-  it("lists exactly one tool named 'consensus'", async () => {
+  it("lists the generic `consensus` tool plus one tool per built-in preset", async () => {
     const result = await env.client.listTools();
-    expect(result.tools).toHaveLength(1);
-    expect(result.tools[0]!.name).toBe("consensus");
+    const names = result.tools.map((t) => t.name);
+    expect(names).toContain("consensus");
+    for (const preset of BUILT_IN_PRESETS) {
+      expect(names).toContain(preset.toolName);
+    }
+    expect(result.tools).toHaveLength(1 + BUILT_IN_PRESETS.length);
   });
 
   it("the consensus tool input schema marks `prompt` as required", async () => {
     const result = await env.client.listTools();
-    const schema = result.tools[0]!.inputSchema as {
+    const tool = result.tools.find((t) => t.name === "consensus");
+    expect(tool).toBeDefined();
+    const schema = tool!.inputSchema as {
       required?: string[];
       properties?: Record<string, unknown>;
     };
@@ -103,18 +164,73 @@ describe("createMcpServer — registration", () => {
     expect(schema.properties).toHaveProperty("judge");
   });
 
-  it("the tool description surfaces configured participants and personas", async () => {
+  it("each preset tool advertises a valid input schema with `prompt` required", async () => {
     const result = await env.client.listTools();
-    const desc = result.tools[0]!.description ?? "";
-    // Operators debugging their setup rely on this description telling them
-    // which participants are actually wired up. Keep it useful.
+    for (const preset of BUILT_IN_PRESETS) {
+      const tool = result.tools.find((t) => t.name === preset.toolName);
+      expect(tool, `preset ${preset.id} not registered`).toBeDefined();
+      const schema = tool!.inputSchema as {
+        type?: string;
+        required?: string[];
+        properties?: Record<string, unknown>;
+      };
+      expect(schema.type).toBe("object");
+      expect(schema.required).toContain("prompt");
+      expect(schema.properties).toHaveProperty("prompt");
+      // Preset tools deliberately don't expose `participantIds` — the panel is
+      // the preset's responsibility.
+      expect(schema.properties).not.toHaveProperty("participantIds");
+    }
+  });
+
+  it("the consensus tool description surfaces configured participants and personas", async () => {
+    const result = await env.client.listTools();
+    const tool = result.tools.find((t) => t.name === "consensus");
+    const desc = tool?.description ?? "";
     expect(desc).toContain("p1");
     expect(desc).toContain("p2");
     expect(desc).toContain("Risk Analyst");
     expect(desc).toContain("First-Principles Engineer");
-    // When no judge is configured the description must say so explicitly —
-    // operators debugging an "expected judge but didn't get one" issue look here.
     expect(desc).toMatch(/judge:\s*none configured/i);
+  });
+
+  it("preset tool descriptions list the panel personas and required/optional status", async () => {
+    const result = await env.client.listTools();
+    for (const preset of BUILT_IN_PRESETS) {
+      const tool = result.tools.find((t) => t.name === preset.toolName);
+      const desc = tool?.description ?? "";
+      for (const entry of preset.panel) {
+        expect(desc, `preset ${preset.id} desc must mention persona ${entry.personaId}`).toContain(
+          entry.personaId,
+        );
+      }
+      expect(desc).toMatch(/\[required\]|\[optional\]/);
+    }
+  });
+});
+
+describe("createMcpServer — runnability flagging", () => {
+  it("preset tool description flags NOT RUNNABLE when required personas are missing", async () => {
+    // Configure pessimist + vc-specialist only — code_review needs
+    // pessimist + (domain-expert OR first-principles), so it cannot run.
+    const env = await connect(makeUnrunnableForCodeReviewConfig());
+    const result = await env.client.listTools();
+    const codeReview = result.tools.find((t) => t.name === "consensus_code_review");
+    expect(codeReview?.description).toMatch(/NOT RUNNABLE/);
+    expect(codeReview?.description).toContain("domain-expert");
+    await env.close();
+  });
+});
+
+describe("createMcpServer — preset registration with full panel", () => {
+  it("preset descriptions don't show NOT RUNNABLE when all personas are configured", async () => {
+    const env = await connect(makeFullPanelConfig());
+    const result = await env.client.listTools();
+    for (const preset of BUILT_IN_PRESETS) {
+      const tool = result.tools.find((t) => t.name === preset.toolName);
+      expect(tool?.description ?? "", `preset ${preset.id}`).not.toMatch(/NOT RUNNABLE/);
+    }
+    await env.close();
   });
 });
 
@@ -156,7 +272,7 @@ describe("createMcpServer — input validation via tool calls", () => {
       arguments: { prompt: "" },
     });
     expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text?: string }>;
+    const content = result.content as { type: string; text?: string }[];
     expect(content[0]?.text ?? "").toMatch(/invalid input/i);
     await env.close();
   });
@@ -171,7 +287,7 @@ describe("createMcpServer — input validation via tool calls", () => {
       },
     });
     expect(result.isError).toBe(true);
-    const content = result.content as Array<{ type: string; text?: string }>;
+    const content = result.content as { type: string; text?: string }[];
     expect(content[0]?.text ?? "").toMatch(/unknown participantid/i);
     await env.close();
   });
@@ -183,6 +299,32 @@ describe("createMcpServer — input validation via tool calls", () => {
       arguments: { prompt: "test prompt", judge: true },
     });
     expect(result.isError).toBe(true);
+    await env.close();
+  });
+
+  it("returns an isError result when invoking a preset whose required personas aren't configured", async () => {
+    // pessimist + vc-specialist only — code_review needs domain-expert or first-principles.
+    const env = await connect(makeUnrunnableForCodeReviewConfig());
+    const result = await env.client.callTool({
+      name: "consensus_code_review",
+      arguments: { prompt: "review this diff" },
+    });
+    expect(result.isError).toBe(true);
+    const content = result.content as { type: string; text?: string }[];
+    expect(content[0]?.text ?? "").toMatch(/missing required personas/i);
+    expect(content[0]?.text ?? "").toContain("domain-expert");
+    await env.close();
+  });
+
+  it("returns an isError result for an empty prompt on a preset tool", async () => {
+    const env = await connect(makeFullPanelConfig());
+    const result = await env.client.callTool({
+      name: "consensus_code_review",
+      arguments: { prompt: "" },
+    });
+    expect(result.isError).toBe(true);
+    const content = result.content as { type: string; text?: string }[];
+    expect(content[0]?.text ?? "").toMatch(/invalid input/i);
     await env.close();
   });
 });

@@ -1,12 +1,15 @@
 // ─────────────────────────────────────────────────────────────
-// MCP server — exposes the `consensus` tool over stdio
+// MCP server — exposes the `consensus` tool plus one tool per preset
 // ─────────────────────────────────────────────────────────────
+// The generic `consensus` tool still takes a fully free-form prompt with
+// every engine knob exposed. On top of that, each preset (code review,
+// architecture debate, etc.) is registered as its own MCP tool —
+// `consensus_<preset_id>` — with a curated panel and tuned defaults.
+// Hosts surface preset tools in autocomplete; users invoke them with
+// one command without needing to know about the underlying knobs.
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   ConsensusEngine,
@@ -14,14 +17,24 @@ import {
   type ConsensusResult,
   type Participant,
 } from "ai-consensus-core";
-import type { LoadedConfig } from "./config.js";
+import type { LoadedConfig, ResolvedDefaults } from "./config.js";
 import { createOpenAICompatibleCaller } from "./adapter.js";
-import { wireEngineProgress, type SendNotification } from "./progress.js";
+import { wireEngineProgress } from "./progress.js";
+import { BUILT_IN_PRESETS } from "./presets/definitions/index.js";
+import { createRegistry, type PresetRegistry } from "./presets/registry.js";
+import {
+  buildPresetJsonSchema,
+  buildPresetZodSchema,
+  type PresetInputZodSchema,
+} from "./presets/build-input-schema.js";
+import { resolvePresetPanel, checkRunnability } from "./presets/resolve-panel.js";
+import { formatPresetResult } from "./presets/format.js";
+import type { Preset } from "./presets/types.js";
 
-export const SERVER_NAME = "ai-consensus-mcp";
-export const SERVER_VERSION = "0.10.0";
+export { SERVER_NAME, SERVER_VERSION } from "./version.js";
+import { SERVER_NAME, SERVER_VERSION } from "./version.js";
 
-// ── Tool input schema ────────────────────────────────────────
+// ── Generic `consensus` tool input schema ────────────────────
 
 const ConsensusInputSchema = z.object({
   prompt: z.string().min(1),
@@ -79,13 +92,11 @@ const CONSENSUS_INPUT_JSON_SCHEMA = {
     disagreementThreshold: {
       type: "number",
       minimum: 0,
-      description:
-        "Confidence-delta threshold for disagreement detection. Default: 20.",
+      description: "Confidence-delta threshold for disagreement detection. Default: 20.",
     },
     blindFirstRound: {
       type: "boolean",
-      description:
-        "If true, round 1 runs in parallel with no cross-visibility. Default: true.",
+      description: "If true, round 1 runs in parallel with no cross-visibility. Default: true.",
     },
     randomizeOrder: {
       type: "boolean",
@@ -123,89 +134,302 @@ export function createMcpServer(config: LoadedConfig): Server {
     { capabilities: { tools: {} } },
   );
 
-  const caller = createOpenAICompatibleCaller(config);
+  // Phase 1 ships built-in presets only. Phase 1.7+ will layer
+  // user-supplied overrides from `LoadedConfig.presets` here.
+  const presets: PresetRegistry = createRegistry(BUILT_IN_PRESETS);
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: [
       {
         name: "consensus",
-        description: buildToolDescription(config),
+        description: buildGenericToolDescription(config),
         inputSchema: CONSENSUS_INPUT_JSON_SCHEMA,
       },
+      ...presets.list().map((preset) => ({
+        name: preset.toolName,
+        description: buildPresetToolDescription(preset, config),
+        inputSchema: buildPresetJsonSchema(preset),
+      })),
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
-    if (request.params.name !== "consensus") {
-      return toolError(`Unknown tool: ${request.params.name}`);
+    const toolName = request.params.name;
+
+    if (toolName === "consensus") {
+      return runGenericConsensus({
+        config,
+        request,
+        extra,
+      });
     }
 
-    const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
-    if (!parsed.success) {
-      return toolError(
-        `Invalid input:\n${parsed.error.errors
-          .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
-          .join("\n")}`,
-      );
-    }
-    const input = parsed.data;
-
-    const selectedParticipants = resolveParticipants(config, input);
-    if (selectedParticipants instanceof Error) {
-      return toolError(selectedParticipants.message);
+    const preset = presets.byToolName(toolName);
+    if (preset) {
+      return runPresetConsensus({
+        preset,
+        config,
+        request,
+        extra,
+      });
     }
 
-    const judgeEnabled = input.judge ?? config.defaults.useJudge;
-    if (judgeEnabled && !config.judge) {
-      return toolError(
-        "Judge was requested but the server config does not declare a `judge` entry.",
-      );
-    }
-
-    const options = buildEngineOptions({
-      config,
-      input,
-      participants: selectedParticipants,
-      judgeEnabled,
-      signal: extra?.signal,
-    });
-
-    const engine = new ConsensusEngine(caller);
-
-    const progressToken = request.params._meta?.progressToken;
-    const detachProgress =
-      progressToken !== undefined && extra?.sendNotification
-        ? wireEngineProgress({
-            engine,
-            sendNotification: extra.sendNotification as unknown as SendNotification,
-            progressToken,
-            maxRounds: options.maxRounds ?? 4,
-            judgeEnabled: Boolean(options.judge),
-          })
-        : () => undefined;
-
-    try {
-      const result = await engine.run(options);
-      return {
-        content: [
-          { type: "text", text: formatResultSummary(result) },
-        ],
-        structuredContent: serializeResult(result),
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return toolError(`Consensus run failed: ${message}`);
-    } finally {
-      detachProgress();
-    }
+    return toolError(`Unknown tool: ${toolName}`);
   });
 
   return server;
 }
 
-// ── Helpers ─────────────────────────────────────────────────
+// ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
-function buildToolDescription(config: LoadedConfig): string {
+interface DispatchArgs {
+  config: LoadedConfig;
+  request: { params: { arguments?: unknown; _meta?: { progressToken?: string | number } } };
+  extra: { signal?: AbortSignal; sendNotification?: unknown } | undefined;
+}
+
+async function runGenericConsensus(args: DispatchArgs) {
+  const { config, request, extra } = args;
+  const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
+  if (!parsed.success) {
+    return toolError(formatZodIssues(parsed.error));
+  }
+  const input = parsed.data;
+
+  const selectedParticipants = resolveGenericParticipants(config, input);
+  if (selectedParticipants instanceof Error) {
+    return toolError(selectedParticipants.message);
+  }
+
+  const judgeEnabled = input.judge ?? config.defaults.useJudge;
+  if (judgeEnabled && !config.judge) {
+    return toolError("Judge was requested but the server config does not declare a `judge` entry.");
+  }
+
+  const options = buildEngineOptions({
+    question: input.prompt,
+    participants: selectedParticipants,
+    presetDefaults: undefined,
+    inputOverrides: input,
+    configDefaults: config.defaults,
+    judgeEnabled,
+    judgeConfig: config.judge,
+    judgeSystemPrompt: undefined,
+    signal: extra?.signal,
+  });
+
+  const caller = createOpenAICompatibleCaller({
+    providers: config.providers,
+    providerByParticipant: config.providerByParticipant,
+  });
+
+  const engine = new ConsensusEngine(caller);
+  const detachProgress = attachProgress({ engine, request, extra, options });
+
+  try {
+    const result = await engine.run(options);
+    return {
+      content: [{ type: "text", text: formatGenericResultSummary(result) }],
+      structuredContent: serializeResult(result),
+    };
+  } catch (err) {
+    return toolError(`Consensus run failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    detachProgress();
+  }
+}
+
+// ── Preset dispatch ──────────────────────────────────────────
+
+interface PresetDispatchArgs extends DispatchArgs {
+  preset: Preset;
+}
+
+async function runPresetConsensus(args: PresetDispatchArgs) {
+  const { preset, config, request, extra } = args;
+
+  const schema: PresetInputZodSchema = buildPresetZodSchema(preset);
+  const parsed = schema.safeParse(request.params.arguments ?? {});
+  if (!parsed.success) {
+    return toolError(formatZodIssues(parsed.error));
+  }
+  const parsedInput = parsed.data as Record<string, unknown>;
+  const prompt = parsedInput["prompt"] as string;
+
+  // Pre-flight runnability check — gives a cleaner error than letting
+  // resolvePresetPanel fail with the same info but more noise.
+  const runnability = checkRunnability(preset, config);
+  if (!runnability.runnable) {
+    return toolError(
+      `Preset "${preset.id}" cannot run with the current config: missing required personas ${runnability.missingPersonaIds
+        .map((p) => `"${p}"`)
+        .join(", ")}. Configured personas: ${config.participants
+        .map((p) => `"${p.persona.id}"`)
+        .join(", ")}.`,
+    );
+  }
+
+  const resolved = resolvePresetPanel(preset, config);
+  if (resolved instanceof Error) {
+    return toolError(resolved.message);
+  }
+
+  const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
+  // Preset runs don't *require* a judge — they degrade gracefully to raw panel
+  // output when none is configured. The formatter notes the absence.
+
+  const options = buildEngineOptions({
+    question: prompt,
+    participants: resolved.participants,
+    presetDefaults: preset.defaults,
+    inputOverrides: parsedInput,
+    configDefaults: config.defaults,
+    judgeEnabled,
+    judgeConfig: config.judge,
+    judgeSystemPrompt: preset.judgeSystemPrompt,
+    signal: extra?.signal,
+  });
+
+  const caller = createOpenAICompatibleCaller({
+    providers: config.providers,
+    providerByParticipant: resolved.providerByParticipant,
+  });
+
+  const engine = new ConsensusEngine(caller);
+  const detachProgress = attachProgress({ engine, request, extra, options });
+
+  try {
+    const result = await engine.run(options);
+    const extras: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(parsedInput)) {
+      if (k !== "prompt" && !PRESET_BASE_KEY_SET.has(k)) extras[k] = v;
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: formatPresetResult(preset, result, { prompt, extras }),
+        },
+      ],
+      structuredContent: serializeResult(result),
+    };
+  } catch (err) {
+    return toolError(
+      `Preset "${preset.id}" run failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    detachProgress();
+  }
+}
+
+// ── Shared engine-options builder ────────────────────────────
+
+interface BuildEngineOptionsArgs {
+  question: string;
+  participants: Participant[];
+  presetDefaults: Partial<ResolvedDefaults> | undefined;
+  inputOverrides: Record<string, unknown>;
+  configDefaults: ResolvedDefaults;
+  judgeEnabled: boolean;
+  judgeConfig: LoadedConfig["judge"];
+  judgeSystemPrompt: string | undefined;
+  signal: AbortSignal | undefined;
+}
+
+function buildEngineOptions(args: BuildEngineOptionsArgs): ConsensusOptions {
+  const {
+    question,
+    participants,
+    presetDefaults,
+    inputOverrides: i,
+    configDefaults: c,
+    judgeEnabled,
+    judgeConfig,
+    judgeSystemPrompt,
+    signal,
+  } = args;
+  const p = presetDefaults;
+
+  // Resolution order: tool input → preset defaults → config defaults → engine defaults.
+  const options: ConsensusOptions = {
+    question,
+    participants,
+    maxRounds: pickNumber(i["maxRounds"], p?.maxRounds, c.maxRounds, 4),
+    earlyStop: pickBool(i["earlyStop"], p?.earlyStop, c.earlyStop, true),
+    convergenceDelta: pickNumber(i["convergenceDelta"], p?.convergenceDelta, c.convergenceDelta, 3),
+    disagreementThreshold: pickNumber(
+      i["disagreementThreshold"],
+      p?.disagreementThreshold,
+      c.disagreementThreshold,
+      20,
+    ),
+    blindFirstRound: pickBool(i["blindFirstRound"], p?.blindFirstRound, c.blindFirstRound, true),
+    randomizeOrder: pickBool(i["randomizeOrder"], p?.randomizeOrder, c.randomizeOrder, true),
+    participantTemperature: pickNumber(
+      i["participantTemperature"],
+      p?.participantTemperature,
+      c.participantTemperature,
+      0.7,
+    ),
+    maxOutputTokens: pickNumber(i["maxOutputTokens"], p?.maxOutputTokens, c.maxOutputTokens, 1500),
+  };
+  if (typeof i["randomSeed"] === "number") options.randomSeed = i["randomSeed"];
+  if (signal) options.signal = signal;
+  if (judgeEnabled && judgeConfig) {
+    options.judge = {
+      modelId: judgeConfig.modelId,
+      ...(judgeConfig.temperature !== undefined ? { temperature: judgeConfig.temperature } : {}),
+      ...(judgeConfig.maxOutputTokens !== undefined
+        ? { maxOutputTokens: judgeConfig.maxOutputTokens }
+        : {}),
+      ...(judgeSystemPrompt !== undefined ? { systemPrompt: judgeSystemPrompt } : {}),
+    };
+  }
+  return options;
+}
+
+function pickNumber(...candidates: readonly unknown[]): number {
+  for (const c of candidates) {
+    if (typeof c === "number") return c;
+  }
+  // Call sites always include a literal-number final fallback — this is a
+  // programming-error guard, not a runtime path.
+  throw new Error("internal: pickNumber called without a numeric default");
+}
+
+function pickBool(...candidates: readonly unknown[]): boolean {
+  for (const c of candidates) {
+    if (typeof c === "boolean") return c;
+  }
+  throw new Error("internal: pickBool called without a boolean default");
+}
+
+// ── Progress wiring ──────────────────────────────────────────
+
+function attachProgress(args: {
+  engine: ConsensusEngine;
+  request: DispatchArgs["request"];
+  extra: DispatchArgs["extra"];
+  options: ConsensusOptions;
+}): () => void {
+  const { engine, request, extra, options } = args;
+  const progressToken = request.params._meta?.progressToken;
+  if (progressToken === undefined || !extra?.sendNotification) return () => undefined;
+
+  return wireEngineProgress({
+    engine,
+    sendNotification: extra.sendNotification as Parameters<
+      typeof wireEngineProgress
+    >[0]["sendNotification"],
+    progressToken,
+    maxRounds: options.maxRounds ?? 4,
+    judgeEnabled: Boolean(options.judge),
+  });
+}
+
+// ── Generic-tool helpers ─────────────────────────────────────
+
+function buildGenericToolDescription(config: LoadedConfig): string {
   const participantLines = config.participants.map(
     (p) => `    • ${p.id} — ${p.persona.name} on ${p.modelId}`,
   );
@@ -225,10 +449,13 @@ function buildToolDescription(config: LoadedConfig): string {
     ...participantLines,
     "",
     judgeLine.trimEnd(),
+    "",
+    "For task-specific defaults (code review, architecture debates, etc.),",
+    "see the dedicated `consensus_<preset>` tools.",
   ].join("\n");
 }
 
-function resolveParticipants(
+function resolveGenericParticipants(
   config: LoadedConfig,
   input: ConsensusInput,
 ): Participant[] | Error {
@@ -254,46 +481,59 @@ function resolveParticipants(
   return selected;
 }
 
-function buildEngineOptions(args: {
-  config: LoadedConfig;
-  input: ConsensusInput;
-  participants: Participant[];
-  judgeEnabled: boolean;
-  signal: AbortSignal | undefined;
-}): ConsensusOptions {
-  const { config, input, participants, judgeEnabled, signal } = args;
-  const d = config.defaults;
+// ── Preset-tool helpers ──────────────────────────────────────
 
-  const options: ConsensusOptions = {
-    question: input.prompt,
-    participants,
-    maxRounds: input.maxRounds ?? d.maxRounds ?? 4,
-    earlyStop: input.earlyStop ?? d.earlyStop ?? true,
-    convergenceDelta: input.convergenceDelta ?? d.convergenceDelta ?? 3,
-    disagreementThreshold:
-      input.disagreementThreshold ?? d.disagreementThreshold ?? 20,
-    blindFirstRound: input.blindFirstRound ?? d.blindFirstRound ?? true,
-    randomizeOrder: input.randomizeOrder ?? d.randomizeOrder ?? true,
-    participantTemperature:
-      input.participantTemperature ?? d.participantTemperature ?? 0.7,
-    maxOutputTokens: input.maxOutputTokens ?? d.maxOutputTokens ?? 1500,
-  };
-  if (input.randomSeed !== undefined) options.randomSeed = input.randomSeed;
-  if (signal) options.signal = signal;
-  if (judgeEnabled && config.judge) {
-    options.judge = {
-      modelId: config.judge.modelId,
-      ...(config.judge.temperature !== undefined
-        ? { temperature: config.judge.temperature }
-        : {}),
-      ...(config.judge.maxOutputTokens !== undefined
-        ? { maxOutputTokens: config.judge.maxOutputTokens }
-        : {}),
-    };
+function buildPresetToolDescription(preset: Preset, config: LoadedConfig): string {
+  const runnability = checkRunnability(preset, config);
+  const panelLines = preset.panel.map((entry) => {
+    const required = entry.required ? "[required]" : "[optional]";
+    const fallback =
+      entry.fallbackPersonaIds && entry.fallbackPersonaIds.length > 0
+        ? ` (fallbacks: ${entry.fallbackPersonaIds.join(", ")})`
+        : "";
+    return `    • ${entry.personaId} ${required}${fallback}`;
+  });
+
+  const lines: string[] = [];
+  lines.push(preset.description);
+  lines.push("");
+  lines.push("Panel:");
+  lines.push(...panelLines);
+  if (!runnability.runnable) {
+    lines.push("");
+    lines.push(
+      `⚠ Currently NOT RUNNABLE — your config is missing required personas: ${runnability.missingPersonaIds.join(", ")}. Add them or switch to a different preset.`,
+    );
   }
-  return options;
+  return lines.join("\n");
 }
 
+const PRESET_BASE_KEY_SET = new Set([
+  "prompt",
+  "maxRounds",
+  "earlyStop",
+  "convergenceDelta",
+  "disagreementThreshold",
+  "blindFirstRound",
+  "randomizeOrder",
+  "participantTemperature",
+  "maxOutputTokens",
+  "judge",
+  "randomSeed",
+]);
+
+// ── Result helpers ───────────────────────────────────────────
+
+function formatZodIssues(error: z.ZodError): string {
+  return `Invalid input:\n${error.errors
+    .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
+    .join("\n")}`;
+}
+
+// Tool-response shape is intentionally not pinned to a custom type — the
+// SDK's CallToolResult is broader (supports `task`, `_meta`, additional
+// content blocks). Returning plain objects lets TS infer compatibility
+// with the SDK without us tracking SDK-version churn here.
 function toolError(message: string) {
   return {
     isError: true,
@@ -301,9 +541,7 @@ function toolError(message: string) {
   };
 }
 
-// ── Result formatting ───────────────────────────────────────
-
-function formatResultSummary(result: ConsensusResult): string {
+function formatGenericResultSummary(result: ConsensusResult): string {
   const lines: string[] = [];
   lines.push(`# Consensus Result`);
   lines.push("");
@@ -365,7 +603,5 @@ function formatResultSummary(result: ConsensusResult): string {
 }
 
 function serializeResult(result: ConsensusResult): Record<string, unknown> {
-  // Already JSON-safe (primitives, arrays, plain objects). Cast without
-  // rebuilding to preserve field order for consumers diffing snapshots.
   return result as unknown as Record<string, unknown>;
 }

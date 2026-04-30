@@ -6,26 +6,23 @@ import { loadConfig } from "../config.js";
 
 let dir: string;
 
-async function writeConfig(
-  obj: unknown,
-  name = "consensus.config.json",
-): Promise<string> {
+async function writeConfig(obj: unknown, name = "consensus.config.json"): Promise<string> {
   const path = join(dir, name);
   await writeFile(path, JSON.stringify(obj));
   return path;
 }
 
-type ValidConfig = {
+interface ValidConfig {
   providers: Record<string, { baseUrl: string; apiKeyEnv: string }>;
-  participants: Array<{
+  participants: {
     id: string;
     provider: string;
     modelId: string;
     personaId: string;
-  }>;
+  }[];
   judge?: { provider: string; modelId: string };
   defaults?: Record<string, unknown>;
-};
+}
 
 const VALID_CONFIG: ValidConfig = {
   providers: {

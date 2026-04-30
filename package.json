@@ -40,23 +40,33 @@
     "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"*.{json,md}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"*.{json,md}\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:smoke": "node scripts/smoke-stdio.mjs",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage",
     "clean": "rm -rf dist coverage *.tsbuildinfo",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run clean && npm run build && npm run test"
   },
   "dependencies": {
-    "ai-consensus-core": "^0.10.0",
     "@modelcontextprotocol/sdk": "^1.13.0",
+    "ai-consensus-core": "^0.10.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "typescript-eslint": "^8.59.1",
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=20"
