@@ -16,3 +16,4 @@ yarn-error.log*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
+progress.md
