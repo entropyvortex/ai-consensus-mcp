@@ -17,3 +17,4 @@ yarn-error.log*
 !.vscode/settings.json
 .idea
 progress.md
+package-lock.json
