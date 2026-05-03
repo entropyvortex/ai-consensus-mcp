@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig } from "../config.js";
+import { loadConfig, readRawConfig, writeRawConfig } from "../config.js";
+import type { RawConfig } from "../config.js";
 
 let dir: string;
 
@@ -178,5 +179,140 @@ describe("loadConfig", () => {
     const risk = cfg.participants.find((p) => p.id === "risk");
     expect(risk?.persona.name).toBe("Risk Analyst");
     expect(risk?.persona.systemPrompt.length).toBeGreaterThan(50);
+  });
+
+  // ── host-sample participants ────────────────────────────────
+
+  it("accepts a host-sample participant alongside a provider participant", async () => {
+    const cfg = {
+      ...VALID_CONFIG,
+      participants: [
+        VALID_CONFIG.participants[0]!,
+        {
+          kind: "host-sample" as const,
+          id: "self",
+          personaId: "domain-expert",
+        },
+      ],
+    };
+    const path = await writeConfig(cfg);
+    const loaded = await loadConfig(path);
+    expect(loaded.participants).toHaveLength(2);
+    // Provider-backed entry routes via providerByParticipant.
+    expect(loaded.providerByParticipant).toMatchObject({ risk: "anthropic" });
+    expect(loaded.providerByParticipant).not.toHaveProperty("self");
+    // host-sample entry tracked separately.
+    expect(loaded.hostSampleParticipants).toHaveProperty("self");
+    expect(loaded.hostSampleParticipants["self"]?.modelHint).toBeUndefined();
+    // host-sample participant carries the synthetic modelId so engine events
+    // flag it clearly rather than masquerading as a real model.
+    const self = loaded.participants.find((p) => p.id === "self");
+    expect(self?.modelId).toBe("host-sample");
+    expect(self?.persona.id).toBe("domain-expert");
+  });
+
+  it("loads a host-sample participant without any providers configured", async () => {
+    // host-sample participants are the whole point: a config with zero
+    // providers can still be valid if both participants are host-sample.
+    // (We need at least 2, so add two.)
+    vi.unstubAllEnvs();
+    const cfg = {
+      providers: {},
+      participants: [
+        { kind: "host-sample" as const, id: "self-a", personaId: "pessimist" },
+        {
+          kind: "host-sample" as const,
+          id: "self-b",
+          personaId: "first-principles",
+          modelHint: "claude-sonnet",
+        },
+      ],
+    };
+    const path = await writeConfig(cfg);
+    const loaded = await loadConfig(path);
+    expect(loaded.participants).toHaveLength(2);
+    expect(loaded.providerByParticipant).toEqual({});
+    expect(loaded.hostSampleParticipants["self-b"]?.modelHint).toBe("claude-sonnet");
+  });
+
+  it("rejects a participant with kind=host-sample that includes provider/modelId", async () => {
+    // strict() on the schema means stray fields fail loudly — host-sample
+    // entries must not declare provider/modelId, since the host owns the model.
+    const bad = {
+      ...VALID_CONFIG,
+      participants: [
+        VALID_CONFIG.participants[0]!,
+        {
+          kind: "host-sample",
+          id: "self",
+          personaId: "domain-expert",
+          provider: "anthropic", // not allowed on host-sample
+          modelId: "claude-sonnet-4-6",
+        },
+      ],
+    };
+    const path = await writeConfig(bad);
+    await expect(loadConfig(path)).rejects.toThrow();
+  });
+});
+
+describe("readRawConfig / writeRawConfig", () => {
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-rw-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("reads a valid config without resolving env vars or personas", async () => {
+    const path = await writeConfig(VALID_CONFIG);
+    // No env stubbing — readRawConfig must not require API keys.
+    const raw = await readRawConfig(path);
+    expect(raw.providers.anthropic?.apiKeyEnv).toBe("TEST_ANTHROPIC_KEY");
+    expect(raw.participants).toHaveLength(2);
+    expect(raw.judge?.modelId).toBe("claude-opus-4-5");
+  });
+
+  it("round-trips a config: write → read returns the same shape", async () => {
+    const path = join(dir, "round-trip.json");
+    const cfg: RawConfig = {
+      providers: {
+        openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_KEY" },
+      },
+      participants: [
+        { id: "a", provider: "openai", modelId: "gpt-4o", personaId: "pessimist" },
+        { id: "b", provider: "openai", modelId: "gpt-4o", personaId: "domain-expert" },
+      ],
+    };
+    await writeRawConfig(path, cfg);
+    const back = await readRawConfig(path);
+    expect(back).toEqual(cfg);
+  });
+
+  it("writes pretty JSON with a trailing newline", async () => {
+    const path = join(dir, "pretty.json");
+    await writeRawConfig(path, {
+      providers: {
+        x: { baseUrl: "https://example.com/v1", apiKeyEnv: "X_KEY" },
+      },
+      participants: [
+        { id: "a", provider: "x", modelId: "m", personaId: "pessimist" },
+        { id: "b", provider: "x", modelId: "m", personaId: "domain-expert" },
+      ],
+    });
+    const text = await readFile(path, "utf8");
+    expect(text.endsWith("\n")).toBe(true);
+    expect(text).toContain('  "providers"');
+  });
+
+  it("refuses to write an invalid config", async () => {
+    const path = join(dir, "bad.json");
+    await expect(
+      writeRawConfig(path, {
+        providers: {},
+        // Only one participant — schema requires ≥2.
+        participants: [{ id: "a", provider: "x", modelId: "m", personaId: "pessimist" }],
+      }),
+    ).rejects.toThrow(/refusing to write invalid config/);
   });
 });

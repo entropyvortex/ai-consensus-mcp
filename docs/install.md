@@ -139,7 +139,7 @@ For any stdio-capable host: register a server with this entry shape
   "args": ["-y", "ai-consensus-mcp", "serve", "--config", "/abs/path/to/consensus.config.json"],
   "env": {
     "GROK_API_KEY": "xai-...",
-    "ANTHROPIC_API_KEY": "sk-ant-..."
+    "CONSENSUS_ANTHROPIC_API_KEY": "sk-ant-..."
   }
 }
 ```

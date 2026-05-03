@@ -83,6 +83,24 @@ describe("runMain — top-level flags", () => {
     expect(code).toBe(0);
     expect(captured.output.join("")).toContain("ai-consensus-mcp serve");
   });
+
+  it("config --help prints config help and returns 0", async () => {
+    const code = await runMain(["config", "--help"]);
+    expect(code).toBe(0);
+    expect(captured.output.join("")).toContain("ai-consensus-mcp config");
+  });
+
+  it("configure --help is an alias for config --help", async () => {
+    const code = await runMain(["configure", "--help"]);
+    expect(code).toBe(0);
+    expect(captured.output.join("")).toContain("ai-consensus-mcp config");
+  });
+
+  it("top-level help mentions the config subcommand", async () => {
+    const code = await runMain(["--help"]);
+    expect(code).toBe(0);
+    expect(captured.output.join("")).toContain("config");
+  });
 });
 
 describe("runMain — backward-compat dispatch", () => {

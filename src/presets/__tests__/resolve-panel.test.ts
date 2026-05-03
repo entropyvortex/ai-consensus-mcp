@@ -26,6 +26,7 @@ function makeConfig(personaIds: string[], hasJudge = false): LoadedConfig {
     },
     participants,
     providerByParticipant,
+    hostSampleParticipants: {},
     judge: hasJudge
       ? {
           providerId: "test",
@@ -181,6 +182,48 @@ describe("resolvePresetPanel", () => {
     const result = resolvePresetPanel(TEST_PRESET, config);
     if (result instanceof Error) throw result;
     expect(result.providerByParticipant["judge"]).toBe("test");
+  });
+
+  it("threads host-sample participants through panel resolution", () => {
+    // Manually wire a config where one persona slot is filled by a host-sample
+    // participant. The resolved panel must split routing: provider for the
+    // provider-backed persona, host-sample for the other.
+    const pessimistP = persona("pessimist");
+    const domainP = persona("domain-expert");
+    const config: LoadedConfig = {
+      sourcePath: "/fake",
+      providers: {
+        test: { id: "test", baseUrl: "https://test.local", apiKey: "k", extraHeaders: {} },
+      },
+      participants: [
+        { id: "p_pess", modelId: "model-pessimist", persona: pessimistP },
+        { id: "p_self", modelId: "host-sample", persona: domainP },
+      ],
+      providerByParticipant: { p_pess: "test" },
+      hostSampleParticipants: { p_self: { modelHint: undefined } },
+      judge: undefined,
+      defaults: {
+        maxRounds: 4,
+        earlyStop: true,
+        convergenceDelta: 3,
+        disagreementThreshold: 20,
+        blindFirstRound: true,
+        randomizeOrder: true,
+        participantTemperature: 0.7,
+        maxOutputTokens: 1500,
+        useJudge: false,
+      },
+    };
+    const result = resolvePresetPanel(TEST_PRESET, config);
+    if (result instanceof Error) throw result;
+    expect(result.providerByParticipant["p_pess"]).toBe("test");
+    expect(result.providerByParticipant["p_self"]).toBeUndefined();
+    expect(result.hostSampleParticipants["p_self"]).toBeDefined();
+    expect(result.hostSampleParticipants["p_pess"]).toBeUndefined();
+    // Task suffix still applied — host-sample participants honour the preset's
+    // persona specialisation just like provider-backed ones.
+    const self = result.participants.find((p) => p.id === "p_self");
+    expect(self?.persona.systemPrompt).toContain("DOMAIN_TASK");
   });
 
   it("returns Error when fewer than 2 participants resolve", () => {

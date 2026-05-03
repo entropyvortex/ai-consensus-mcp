@@ -1,14 +1,30 @@
 // ─────────────────────────────────────────────────────────────
-// ModelCaller adapter — OpenAI-compatible /chat/completions
+// ModelCaller adapters — OpenAI-compatible HTTP + MCP host sampling
 // ─────────────────────────────────────────────────────────────
 // Every major provider exposes an OpenAI-compatible endpoint:
 // OpenAI, Anthropic (api.anthropic.com/v1), Groq, Together, xAI,
 // Mistral, Fireworks, and every self-hosted gateway. So a single
 // Bearer-auth, SSE-streaming adapter covers the whole surface and
 // keeps this package dependency-light (no provider SDKs).
+//
+// On top of that, this module exposes a sampling-backed caller that
+// uses MCP `sampling/createMessage` to ask the *calling host* (Claude
+// Code, Cursor, Windsurf, etc.) to answer as a participant. This lets
+// the human's coding agent take a seat at the consensus roundtable
+// without configuring an extra provider.
+//
+// `createRoutedCaller` is the public entry point: it picks per-call
+// between sampling (if the participant is in the host-sample set) and
+// HTTP (otherwise).
 
-import type { ModelCaller, TokenUsage } from "ai-consensus-core";
-import type { ResolvedProvider } from "./config.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type {
+  ModelCaller,
+  ModelCallRequest,
+  ModelCallResponse,
+  TokenUsage,
+} from "ai-consensus-core";
+import type { HostSampleMeta, ResolvedProvider } from "./config.js";
 
 /**
  * Build a ModelCaller that routes each request to the correct provider
@@ -50,6 +66,121 @@ export function createOpenAICompatibleCaller(args: {
       onToken: req.onToken,
     });
   };
+}
+
+/**
+ * Build a ModelCaller that answers via MCP `sampling/createMessage`.
+ *
+ * The active `Server` instance is the bridge to whatever host invoked the
+ * tool: when this caller fires, the host's LLM (whichever model it happens
+ * to be running — Claude, Codex, etc.) receives the persona system prompt
+ * plus the engine-built user prompt, and its completion comes back as the
+ * participant's response.
+ *
+ * The host owns the model. We forward `modelHint` only as a soft preference
+ * — hosts are free to ignore it. Streaming-token forwarding isn't part of
+ * MCP sampling today, so `onToken` is left unused (the engine already drops
+ * token-level events in this server).
+ */
+export function createSamplingCaller(args: {
+  server: Server;
+  hostSampleParticipants: Record<string, HostSampleMeta>;
+}): ModelCaller {
+  const { server, hostSampleParticipants } = args;
+  return async (req) => {
+    const meta = hostSampleParticipants[req.participantId];
+    if (!meta) {
+      throw new Error(
+        `ai-consensus-mcp: participant "${req.participantId}" was routed to sampling but has no host-sample entry.`,
+      );
+    }
+    return callViaSampling({ server, req, meta });
+  };
+}
+
+/**
+ * Build a ModelCaller that routes per-participant: host-sample participants
+ * go to MCP sampling, everyone else to the OpenAI-compatible HTTP adapter.
+ * The judge (synthetic id `"judge"`) always routes to its provider.
+ */
+export function createRoutedCaller(args: {
+  providers: Record<string, ResolvedProvider>;
+  providerByParticipant: Record<string, string>;
+  hostSampleParticipants: Record<string, HostSampleMeta>;
+  server: Server;
+}): ModelCaller {
+  const httpCaller = createOpenAICompatibleCaller({
+    providers: args.providers,
+    providerByParticipant: args.providerByParticipant,
+  });
+  const samplingCaller = createSamplingCaller({
+    server: args.server,
+    hostSampleParticipants: args.hostSampleParticipants,
+  });
+  return (req) => {
+    if (args.hostSampleParticipants[req.participantId]) {
+      return samplingCaller(req);
+    }
+    return httpCaller(req);
+  };
+}
+
+interface SamplingCallArgs {
+  server: Server;
+  req: ModelCallRequest;
+  meta: HostSampleMeta;
+}
+
+async function callViaSampling(args: SamplingCallArgs): Promise<ModelCallResponse> {
+  const { server, req, meta } = args;
+
+  // MCP sampling carries the system prompt as a top-level field, not as a
+  // message. Hosts that respect it inject it into their own model call;
+  // hosts that don't get the same content as a leading user message via
+  // model context, which is degraded but not wrong.
+  const params = {
+    messages: [
+      {
+        role: "user" as const,
+        content: { type: "text" as const, text: req.user },
+      },
+    ],
+    systemPrompt: req.system,
+    maxTokens: req.maxOutputTokens,
+    temperature: req.temperature,
+    ...(meta.modelHint ? { modelPreferences: { hints: [{ name: meta.modelHint }] } } : {}),
+  };
+
+  const requestOptions = req.signal ? { signal: req.signal } : undefined;
+
+  let result;
+  try {
+    result = await server.createMessage(params, requestOptions);
+  } catch (err) {
+    throw new Error(
+      `ai-consensus-mcp: host sampling failed for participant "${req.participantId}": ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  // We never request tools, so the response is `CreateMessageResult` whose
+  // `content` is a single discriminated block (text / image / audio). Only
+  // text is meaningful for consensus; non-text blocks surface as an error
+  // so the engine records the participant call as failed rather than crashing.
+  if (result.content.type !== "text") {
+    throw new Error(
+      `ai-consensus-mcp: host sampling for participant "${req.participantId}" returned a "${result.content.type}" block; only text is supported.`,
+    );
+  }
+  const content = result.content.text;
+  if (content.length === 0) {
+    throw new Error(
+      `ai-consensus-mcp: host sampling returned no text for participant "${req.participantId}".`,
+    );
+  }
+
+  return { content };
 }
 
 interface CallParams {

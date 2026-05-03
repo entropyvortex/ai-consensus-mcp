@@ -10,7 +10,11 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       include: ["src/**/*.ts"],
-      exclude: ["src/**/__tests__/**", "src/index.ts"],
+      // src/index.ts: thin runtime shim, exercised via the smoke test.
+      // src/cli/config.ts: interactive TUI flow — covered end-to-end by
+      // the smoke test (`scripts/smoke-stdio.mjs` style); unit-mocking
+      // every @inquirer prompt would be more brittle than the value adds.
+      exclude: ["src/**/__tests__/**", "src/index.ts", "src/cli/config.ts"],
       // Thresholds anchored at the current baseline as a regression guard.
       // Ratchet: every phase that introduces tested modules raises the floor.
       // Target by Phase 5 is statements ≥75 globally and ≥85 on new modules.

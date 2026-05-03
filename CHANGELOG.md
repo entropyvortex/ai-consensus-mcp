@@ -5,6 +5,86 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Changed — host-sample marked experimental; default Anthropic env var renamed
+
+The `host-sample` participant kind is now positioned as experimental and **Claude Desktop only**. Of the hosts this server commonly runs under (Claude Desktop, Claude Code, Cursor, Windsurf), only Claude Desktop currently advertises the MCP `sampling` capability — Claude Code support is tracked at [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785). The feature itself is unchanged; what changed is how it's pitched and shipped:
+
+- `consensus.config.example.json` no longer includes a `host-sample` participant by default; users opt in by editing the config.
+- README's lead bullet and the dedicated section now state up front that host-sample only works in Claude Desktop today.
+- The capability-gate error in `src/server.ts` no longer recommends "Claude Code" — it now names Claude Desktop and links the upstream tracking issue.
+
+In parallel, the **default Anthropic `apiKeyEnv` renamed from `ANTHROPIC_API_KEY` to `CONSENSUS_ANTHROPIC_API_KEY`**. Reason: Claude Code auto-detects `ANTHROPIC_API_KEY` and warns about a conflict when the user is on a Claude Max subscription. Namespacing avoids the collision.
+
+- `consensus.config.example.json`, `src/cli/config.ts` (provider catalog + starter config), `README.md`, and `docs/install.md` all updated.
+- **Not breaking for existing configs.** Users with their own `consensus.config.json` keep whatever `apiKeyEnv` value they set. Only the defaults shipped to new users change.
+
+### Added — host-sample participants (MCP sampling)
+
+A participant can now be answered by the calling MCP host (Claude Code, Cursor, etc.) instead of a configured provider — it takes a seat at the consensus roundtable using whatever model the host happens to be running.
+
+```jsonc
+{
+  "kind": "host-sample",
+  "id": "self",
+  "personaId": "domain-expert",
+  "modelHint": "claude-sonnet", // optional; soft preference, hosts may ignore
+}
+```
+
+When the engine asks for a host-sample participant's turn, the server issues an MCP `sampling/createMessage` request and forwards the host's reply as that participant's response. No extra API key, no extra provider entry — the host's LLM does the work and bills against the user's host session.
+
+- `participants[].kind` defaults to `"provider"` (existing configs unchanged).
+- `kind: "host-sample"` participants must omit `provider` and `modelId` — the host owns the model. They carry the synthetic `modelId` `"host-sample"` in engine events for clarity.
+- Configs with zero providers are valid when every participant is `host-sample` — two host-sample participants with different personas give a "two voices, same model" debate.
+- Pre-flight capability check: a tool call that would need sampling against a host that didn't advertise the `sampling` capability returns an `isError` response naming the participant, instead of hanging.
+- The judge stays provider-only for now (no `judge.kind` field).
+
+Internals:
+
+- `src/config.ts` — `ParticipantConfigSchema` becomes a discriminated union (`ProviderParticipantConfigSchema` | `HostSampleParticipantConfigSchema`); `LoadedConfig` gains `hostSampleParticipants: Record<string, HostSampleMeta>`.
+- `src/adapter.ts` — `createSamplingCaller` issues `server.createMessage(...)`; `createRoutedCaller` dispatches per-participant between sampling and the OpenAI-compatible HTTP caller.
+- `src/server.ts` — `ensureSamplingSupported` gate runs before each tool call; the active `Server` instance flows into the routed caller so sampling requests land on the right transport.
+- `src/presets/resolve-panel.ts` — `ResolvedPanel` now exposes `hostSampleParticipants`; preset task suffixes apply to host-sample participants the same way as provider-backed ones.
+- `src/cli/config.ts` — interactive editor lets you pick "Configured provider" vs "MCP host sampling" when adding a participant; participant menu is reachable with zero providers configured.
+- Tests: 5 focused unit tests for `createSamplingCaller` (positive path, modelHint forwarding, non-text rejection, host-error wrapping, missing-entry guard); config-loader tests for the new kind; server test for the capability-gate error; resolve-panel test for end-to-end propagation.
+
+### Added — interactive config editor
+
+CLI gains a `config` subcommand (alias: `configure`) that launches an
+interactive TUI for managing the entire `consensus.config.json`:
+
+```
+ai-consensus-mcp config                            # edits ~/.consensus.config.json
+ai-consensus-mcp config --config ./project.json    # any path; created if missing
+```
+
+- Add / edit / remove providers (baseUrl, apiKeyEnv, optional extraHeaders).
+- Add / edit / remove participants with provider + persona selection from
+  the in-process `PERSONAS` registry; participant ids enforced unique.
+- Toggle / configure the optional judge (provider, modelId, optional
+  temperature + maxOutputTokens).
+- Edit any subset of `defaults` via a checkbox-driven form.
+- "View raw JSON" and "Validate now" actions for sanity checks at any
+  point; the full config is re-validated against the existing Zod
+  schemas on save and the editor refuses to write a file the server
+  wouldn't accept.
+- Save is atomic: contents land in `<path>.tmp`, then `rename(2)` into
+  place — a crash mid-write can't leave a half-written config.
+- Ctrl-C and "Discard & exit" never write anything.
+
+Internals:
+
+- `src/cli/config.ts` — interactive flow, top-level menu + per-section
+  sub-menus.
+- `src/config.ts` gains `readRawConfig` / `writeRawConfig` helpers and
+  exports `RawConfigSchema` + sub-schemas + `formatZodError` for reuse.
+- New dependency: `@inquirer/prompts ^8.4.2` (modern function-per-prompt
+  API maintained by the Inquirer.js project — ESM-first, typed, no
+  classic `inquirer.prompt(...)` builder).
+- Tests: round-trip + atomic-write + invalid-config-rejection cases for
+  `readRawConfig` / `writeRawConfig`; dispatcher tests for the new
+  `config` / `configure` subcommands.
+
 ### Added — presets
 
 Five task-tuned preset tools, each registered as a separate MCP tool so hosts surface them in autocomplete:
@@ -56,7 +136,6 @@ Backward compatibility: the bare `ai-consensus-mcp --config X` invocation still 
 - **Tool calling integration** (planned for the next minor): blocked on `ai-consensus-core@0.11.0` publishing. Once the upstream lands, the wrapper will gain `tools.upstreamServers` config, an `executor.ts` that drives MCP composition, and updated presets that bind tools (`code_review` → fs/read, `research_synthesis` → fetch).
 - **`docs/install.html` for GitHub Pages**: the markdown doc at `docs/install.md` covers the same surface; HTML page with a Cursor deeplink button is a polish follow-up.
 - **`--verify` smoke after install**: today users run `scripts/smoke-stdio.mjs` separately.
-- **`--init-config` to bootstrap a starter config**: today users `cp consensus.config.example.json` manually.
 - **Config-side preset overrides** (`LoadedConfig.presets`): the `mergePresets` infrastructure is in place; hooking up a config schema waits for a concrete user request.
 
 ## [0.10.0] — 2026-04-24
