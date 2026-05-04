@@ -5,6 +5,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — `CODE_OF_CONDUCT.md` and `.github/` issue / PR templates
+
+Closes the documentation gap flagged in the prior consensus code review.
+
+- `CODE_OF_CONDUCT.md` adopts version 2.1 of the [Contributor Covenant] by reference (rather than vendoring the canonical text — many top-tier libs follow the same pattern, and it stays current as the Covenant evolves). Reporting channel is GitHub's private vulnerability reporting flow with a `[conduct]` title prefix; SLAs match `SECURITY.md` (5 / 10 business days).
+- `.github/ISSUE_TEMPLATE/bug_report.md` — environment fields (server version, Node, MCP host, OS), reproduction, security carve-out.
+- `.github/ISSUE_TEMPLATE/feature_request.md` — problem / proposed solution / alternatives, with a pointer to `CONTRIBUTING.md#proposing-larger-changes` for non-trivial proposals.
+- `.github/ISSUE_TEMPLATE/config.yml` — disables blank issues; adds Security and Code-of-Conduct contact links so users land on the right channel before opening a public issue.
+- `.github/PULL_REQUEST_TEMPLATE.md` — summary / changes / checklist (tests, `npm run check`, CHANGELOG, no version bumps) mirroring the PR norms in `CONTRIBUTING.md`.
+- `CONTRIBUTING.md` updated to point at the Code of Conduct.
+
+[Contributor Covenant]: https://www.contributor-covenant.org/version/2/1/code_of_conduct/
+
 ### Added — adapter HTTP-caller and progress.ts unit tests; coverage ratchet
 
 Two new test files, +16 tests, covering modules that previously had little or no direct coverage. Driven by consensus code-review feedback.

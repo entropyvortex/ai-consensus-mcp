@@ -3,6 +3,8 @@
 Thanks for considering a contribution. This project is solo-maintained, so
 expect async review and a preference for small, focused PRs.
 
+By participating you agree to the project's [Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ## Quickstart
 
 ```bash

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/entropyvortex/ai-consensus-mcp/security/advisories/new
+    about: Please use GitHub's private vulnerability reporting for security issues — see SECURITY.md.
+  - name: Code of Conduct concern
+    url: https://github.com/entropyvortex/ai-consensus-mcp/security/advisories/new
+    about: Open a private advisory and prefix the title with `[conduct]` — see CODE_OF_CONDUCT.md.
