@@ -5,6 +5,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — adapter HTTP-caller and progress.ts unit tests; coverage ratchet
+
+Two new test files, +16 tests, covering modules that previously had little or no direct coverage. Driven by consensus code-review feedback.
+
+- `src/__tests__/adapter-http.test.ts` — 9 tests for `createOpenAICompatibleCaller`. Mocks `globalThis.fetch` and constructs SSE-formatted `ReadableStream`s to exercise the streaming parser end to end without hitting a real provider. Covers: streamed-delta assembly + usage parsing; computed totalTokens fallback; cross-chunk JSON line reassembly; `data:` lines with unparseable payloads silently skipped; non-OK HTTP responses (status, statusText, truncated body); empty-stream rejection; missing provider mapping; mapped provider id not loaded; bearer auth + extra headers + body shape forwarded correctly.
+- `src/__tests__/progress.test.ts` — 7 tests for `wireEngineProgress`. Uses a duck-typed mock engine (on/off/emit) to drive each handler. Covers: `total` calculation with/without judge; progress-counter increments on roundComplete + synthesisComplete; participant lifecycle rendering (success + error tags); confidence updates, disagreements, early stop, synthesis start, final result, engine errors; detach() removing all listeners; sendNotification rejections swallowed (best-effort delivery for disconnected clients).
+
+`adapter.ts` coverage moved from 21.51% → 90.58% statements; `progress.ts` from 0% → ~100%.
+
+Aggregate coverage:
+
+|             | Before | After  | Threshold (Phase 2 ratchet) |
+| ----------- | ------ | ------ | --------------------------- |
+| statements  | 66.78% | 78.45% | 78 (was 55)                 |
+| branches    | 61.06% | 69.71% | 69 (was 47)                 |
+| functions   | 66.38% | 83.33% | 83 (was 57)                 |
+| lines       | 67.79% | 80.05% | 80 (was 55)                 |
+
+`vitest.config.ts` thresholds bumped accordingly per the project's ratchet policy. `src/presets/**/*.ts` keeps its stricter floor (90/75/95/90), unchanged.
+
 ### Changed — typed `SamplingError` for host-sample failures
 
 `callViaSampling` (and `createSamplingCaller`'s routing guard) now reject with a typed `SamplingError` instead of generic `Error` instances. Callers can branch on `code` instead of pattern-matching the message string.
