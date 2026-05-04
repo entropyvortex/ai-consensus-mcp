@@ -219,3 +219,67 @@ describe("createSamplingCaller", () => {
     );
   });
 });
+
+describe("SamplingError.toJSON", () => {
+  it("preserves code, participantId, message, contentType, and stack under JSON.stringify", () => {
+    const err = new SamplingError({
+      code: "unsupported-content",
+      participantId: "p1",
+      contentType: "image",
+      message: "boom",
+    });
+    // JSON.stringify auto-invokes toJSON; round-trip to verify the wire shape.
+    const serialized = JSON.parse(JSON.stringify(err)) as Record<string, unknown>;
+    expect(serialized.name).toBe("SamplingError");
+    expect(serialized.code).toBe("unsupported-content");
+    expect(serialized.participantId).toBe("p1");
+    expect(serialized.message).toBe("boom");
+    expect(serialized.contentType).toBe("image");
+    expect(typeof serialized.stack).toBe("string");
+  });
+
+  it("includes a serializable {name,message} snapshot of the cause when set", () => {
+    const cause = new Error("downstream failure");
+    const err = new SamplingError({
+      code: "host-error",
+      participantId: "p_self",
+      cause,
+      message: "host sampling failed",
+    });
+    const serialized = JSON.parse(JSON.stringify(err)) as Record<string, unknown>;
+    expect(serialized.cause).toEqual({ name: "Error", message: "downstream failure" });
+  });
+
+  it("preserves non-Error cause values via a JSON round-trip", () => {
+    const err = new SamplingError({
+      code: "host-error",
+      participantId: "p_self",
+      cause: { weird: true, n: 42 },
+      message: "x",
+    });
+    const serialized = JSON.parse(JSON.stringify(err)) as Record<string, unknown>;
+    expect(serialized.cause).toEqual({ weird: true, n: 42 });
+  });
+
+  it("falls back to a sentinel for cause values that JSON can't represent (e.g. BigInt)", () => {
+    const err = new SamplingError({
+      code: "host-error",
+      participantId: "p_self",
+      cause: 42n,
+      message: "x",
+    });
+    const serialized = JSON.parse(JSON.stringify(err)) as Record<string, unknown>;
+    expect(serialized.cause).toBe("[unserializable cause]");
+  });
+
+  it("omits contentType and cause fields when neither is set", () => {
+    const err = new SamplingError({
+      code: "missing-entry",
+      participantId: "p_self",
+      message: "no meta",
+    });
+    const serialized = JSON.parse(JSON.stringify(err)) as Record<string, unknown>;
+    expect(serialized).not.toHaveProperty("contentType");
+    expect(serialized).not.toHaveProperty("cause");
+  });
+});

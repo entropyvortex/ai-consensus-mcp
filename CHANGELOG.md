@@ -16,12 +16,12 @@ Two new test files, +16 tests, covering modules that previously had little or no
 
 Aggregate coverage:
 
-|             | Before | After  | Threshold (Phase 2 ratchet) |
-| ----------- | ------ | ------ | --------------------------- |
-| statements  | 66.78% | 78.45% | 78 (was 55)                 |
-| branches    | 61.06% | 69.71% | 69 (was 47)                 |
-| functions   | 66.38% | 83.33% | 83 (was 57)                 |
-| lines       | 67.79% | 80.05% | 80 (was 55)                 |
+|            | Before | After  | Threshold (Phase 2 ratchet) |
+| ---------- | ------ | ------ | --------------------------- |
+| statements | 66.78% | 78.45% | 78 (was 55)                 |
+| branches   | 61.06% | 69.71% | 69 (was 47)                 |
+| functions  | 66.38% | 83.33% | 83 (was 57)                 |
+| lines      | 67.79% | 80.05% | 80 (was 55)                 |
 
 `vitest.config.ts` thresholds bumped accordingly per the project's ratchet policy. `src/presets/**/*.ts` keeps its stricter floor (90/75/95/90), unchanged.
 
@@ -51,8 +51,9 @@ try {
 - `err.cause` carries the original host-side error for `code: "host-error"` (ES2022 `Error.cause`).
 - `err.contentType` set when `code: "unsupported-content"`, e.g. `"image"`.
 - Existing message strings are preserved verbatim, so tooling that grepped them still works.
+- `err.toJSON()` is implemented so `JSON.stringify(err)` preserves `code`, `participantId`, `contentType`, `cause`, `message`, and `stack` for structured logging pipelines (a plain `Error` subclass would otherwise reduce to just the message string).
 
-`SamplingError` is exported from `src/adapter.ts`. Six unit tests in `adapter-sampling.test.ts` assert the typed shape per failure mode.
+`SamplingError` is exported from `src/adapter.ts`. Ten unit tests in `adapter-sampling.test.ts` cover each failure mode plus the `toJSON` shape (Error cause, plain-object cause, unserializable cause, omitted optional fields).
 
 ### Changed — host-sample marked experimental; default Anthropic env var renamed
 

@@ -57,6 +57,41 @@ export class SamplingError extends Error {
     this.participantId = args.participantId;
     if (args.contentType !== undefined) this.contentType = args.contentType;
   }
+
+  /**
+   * Structured serialization for logging pipelines.
+   *
+   * `JSON.stringify(err)` on a plain `Error` subclass drops every
+   * non-enumerable own property — `code`, `participantId`,
+   * `contentType`, `cause`, and `stack` would all silently disappear,
+   * leaving only the message string. Defining `toJSON` opts the
+   * instance into structured output so monitors and aggregators see
+   * the full failure context.
+   */
+  toJSON(): Record<string, unknown> {
+    const cause = this.cause;
+    return {
+      name: this.name,
+      code: this.code,
+      participantId: this.participantId,
+      message: this.message,
+      ...(this.contentType !== undefined ? { contentType: this.contentType } : {}),
+      ...(cause !== undefined ? { cause: describeCause(cause) } : {}),
+      stack: this.stack,
+    };
+  }
+}
+
+/** JSON-serialisable summary of an arbitrary `cause` value. */
+function describeCause(cause: unknown): unknown {
+  if (cause instanceof Error) return { name: cause.name, message: cause.message };
+  try {
+    // JSON round-trip drops functions/symbols and surfaces circular refs as
+    // a thrown TypeError, which we catch below.
+    return JSON.parse(JSON.stringify(cause)) as unknown;
+  } catch {
+    return "[unserializable cause]";
+  }
 }
 
 /**
