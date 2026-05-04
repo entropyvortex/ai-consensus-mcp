@@ -14,7 +14,17 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CreateMessageRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ModelCallRequest } from "ai-consensus-core";
-import { createSamplingCaller } from "../adapter.js";
+import { createSamplingCaller, SamplingError } from "../adapter.js";
+
+/** Resolve the rejection of a promise to an Error so per-field assertions can run. */
+async function captureRejection(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (err) {
+    return err;
+  }
+  throw new Error("expected promise to reject, but it resolved");
+}
 
 function buildModelCallRequest(over: Partial<ModelCallRequest> = {}): ModelCallRequest {
   return {
@@ -113,7 +123,7 @@ describe("createSamplingCaller", () => {
     expect(receivedHint).toBe("claude-sonnet");
   });
 
-  it("surfaces a clear error when the host returns a non-text content block", async () => {
+  it("rejects with SamplingError code=unsupported-content when the host returns a non-text block", async () => {
     await withConnectedPair(
       { sampling: {} },
       (client) => {
@@ -128,12 +138,18 @@ describe("createSamplingCaller", () => {
           server,
           hostSampleParticipants: { p_self: { modelHint: undefined } },
         });
-        await expect(caller(buildModelCallRequest())).rejects.toThrow(/only text is supported/);
+        const err = await captureRejection(caller(buildModelCallRequest()));
+        expect(err).toBeInstanceOf(SamplingError);
+        const sampling = err as SamplingError;
+        expect(sampling.code).toBe("unsupported-content");
+        expect(sampling.participantId).toBe("p_self");
+        expect(sampling.contentType).toBe("image");
+        expect(sampling.message).toMatch(/only text is supported/);
       },
     );
   });
 
-  it("wraps host-side errors with the participant id for easier diagnosis", async () => {
+  it("rejects with SamplingError code=host-error wrapping the host-side cause", async () => {
     await withConnectedPair(
       { sampling: {} },
       (client) => {
@@ -146,12 +162,45 @@ describe("createSamplingCaller", () => {
           server,
           hostSampleParticipants: { p_self: { modelHint: undefined } },
         });
-        await expect(caller(buildModelCallRequest())).rejects.toThrow(/p_self/);
+        const err = await captureRejection(caller(buildModelCallRequest()));
+        expect(err).toBeInstanceOf(SamplingError);
+        const sampling = err as SamplingError;
+        expect(sampling.code).toBe("host-error");
+        expect(sampling.participantId).toBe("p_self");
+        expect(sampling.message).toContain("p_self");
+        // ES2022 Error.cause carries the original host-side rejection so
+        // debuggers can walk the chain instead of parsing the message.
+        expect(sampling.cause).toBeInstanceOf(Error);
+        expect((sampling.cause as Error).message).toMatch(/user denied/);
       },
     );
   });
 
-  it("rejects routing for a participant id that has no host-sample entry", async () => {
+  it("rejects with SamplingError code=empty-response when the host returns an empty text block", async () => {
+    await withConnectedPair(
+      { sampling: {} },
+      (client) => {
+        client.setRequestHandler(CreateMessageRequestSchema, () => ({
+          model: "x",
+          role: "assistant" as const,
+          content: { type: "text" as const, text: "" },
+        }));
+      },
+      async (server) => {
+        const caller = createSamplingCaller({
+          server,
+          hostSampleParticipants: { p_self: { modelHint: undefined } },
+        });
+        const err = await captureRejection(caller(buildModelCallRequest()));
+        expect(err).toBeInstanceOf(SamplingError);
+        const sampling = err as SamplingError;
+        expect(sampling.code).toBe("empty-response");
+        expect(sampling.participantId).toBe("p_self");
+      },
+    );
+  });
+
+  it("rejects with SamplingError code=missing-entry for a participant with no host-sample meta", async () => {
     await withConnectedPair(
       { sampling: {} },
       () => undefined,
@@ -160,7 +209,12 @@ describe("createSamplingCaller", () => {
           server,
           hostSampleParticipants: {},
         });
-        await expect(caller(buildModelCallRequest())).rejects.toThrow(/no host-sample entry/);
+        const err = await captureRejection(caller(buildModelCallRequest()));
+        expect(err).toBeInstanceOf(SamplingError);
+        const sampling = err as SamplingError;
+        expect(sampling.code).toBe("missing-entry");
+        expect(sampling.participantId).toBe("p_self");
+        expect(sampling.message).toMatch(/no host-sample entry/);
       },
     );
   });

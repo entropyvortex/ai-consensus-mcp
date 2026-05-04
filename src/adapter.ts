@@ -26,6 +26,39 @@ import type {
 } from "ai-consensus-core";
 import type { HostSampleMeta, ResolvedProvider } from "./config.js";
 
+// ── SamplingError ────────────────────────────────────────────
+// callViaSampling has four distinct failure modes. Surfacing them as a
+// typed Error lets callers branch on `code` instead of pattern-matching
+// the message; `cause` carries the original host error so debuggers can
+// walk the chain.
+
+export type SamplingErrorCode =
+  | "missing-entry" // routing bug — participant marked host-sample but no meta exists
+  | "host-error" // server.createMessage() rejected (often: user denied sampling)
+  | "unsupported-content" // host returned a non-text content block
+  | "empty-response"; // host returned text, but the string is empty
+
+export class SamplingError extends Error {
+  readonly code: SamplingErrorCode;
+  readonly participantId: string;
+  /** Set only when `code === "unsupported-content"`. */
+  readonly contentType?: string;
+
+  constructor(args: {
+    code: SamplingErrorCode;
+    participantId: string;
+    message: string;
+    cause?: unknown;
+    contentType?: string;
+  }) {
+    super(args.message, args.cause !== undefined ? { cause: args.cause } : undefined);
+    this.name = "SamplingError";
+    this.code = args.code;
+    this.participantId = args.participantId;
+    if (args.contentType !== undefined) this.contentType = args.contentType;
+  }
+}
+
 /**
  * Build a ModelCaller that routes each request to the correct provider
  * based on a `providerByParticipant` map. "judge" is a synthetic
@@ -90,9 +123,11 @@ export function createSamplingCaller(args: {
   return async (req) => {
     const meta = hostSampleParticipants[req.participantId];
     if (!meta) {
-      throw new Error(
-        `ai-consensus-mcp: participant "${req.participantId}" was routed to sampling but has no host-sample entry.`,
-      );
+      throw new SamplingError({
+        code: "missing-entry",
+        participantId: req.participantId,
+        message: `ai-consensus-mcp: participant "${req.participantId}" was routed to sampling but has no host-sample entry.`,
+      });
     }
     return callViaSampling({ server, req, meta });
   };
@@ -157,11 +192,14 @@ async function callViaSampling(args: SamplingCallArgs): Promise<ModelCallRespons
   try {
     result = await server.createMessage(params, requestOptions);
   } catch (err) {
-    throw new Error(
-      `ai-consensus-mcp: host sampling failed for participant "${req.participantId}": ${
+    throw new SamplingError({
+      code: "host-error",
+      participantId: req.participantId,
+      cause: err,
+      message: `ai-consensus-mcp: host sampling failed for participant "${req.participantId}": ${
         err instanceof Error ? err.message : String(err)
       }`,
-    );
+    });
   }
 
   // We never request tools, so the response is `CreateMessageResult` whose
@@ -169,15 +207,20 @@ async function callViaSampling(args: SamplingCallArgs): Promise<ModelCallRespons
   // text is meaningful for consensus; non-text blocks surface as an error
   // so the engine records the participant call as failed rather than crashing.
   if (result.content.type !== "text") {
-    throw new Error(
-      `ai-consensus-mcp: host sampling for participant "${req.participantId}" returned a "${result.content.type}" block; only text is supported.`,
-    );
+    throw new SamplingError({
+      code: "unsupported-content",
+      participantId: req.participantId,
+      contentType: result.content.type,
+      message: `ai-consensus-mcp: host sampling for participant "${req.participantId}" returned a "${result.content.type}" block; only text is supported.`,
+    });
   }
   const content = result.content.text;
   if (content.length === 0) {
-    throw new Error(
-      `ai-consensus-mcp: host sampling returned no text for participant "${req.participantId}".`,
-    );
+    throw new SamplingError({
+      code: "empty-response",
+      participantId: req.participantId,
+      message: `ai-consensus-mcp: host sampling returned no text for participant "${req.participantId}".`,
+    });
   }
 
   return { content };

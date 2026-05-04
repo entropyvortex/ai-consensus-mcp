@@ -5,6 +5,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Changed — typed `SamplingError` for host-sample failures
+
+`callViaSampling` (and `createSamplingCaller`'s routing guard) now reject with a typed `SamplingError` instead of generic `Error` instances. Callers can branch on `code` instead of pattern-matching the message string.
+
+```typescript
+import { SamplingError } from "ai-consensus-mcp";
+
+try {
+  await caller(req);
+} catch (err) {
+  if (err instanceof SamplingError) {
+    switch (err.code) {
+      case "missing-entry": // routing bug — should never happen at runtime
+      case "host-error": // host's createMessage rejected; original in err.cause
+      case "unsupported-content": // host returned image/audio/etc; type in err.contentType
+      case "empty-response": // host returned text but the string is empty
+    }
+  }
+}
+```
+
+- `err.code` is one of `"missing-entry" | "host-error" | "unsupported-content" | "empty-response"`.
+- `err.participantId` always set.
+- `err.cause` carries the original host-side error for `code: "host-error"` (ES2022 `Error.cause`).
+- `err.contentType` set when `code: "unsupported-content"`, e.g. `"image"`.
+- Existing message strings are preserved verbatim, so tooling that grepped them still works.
+
+`SamplingError` is exported from `src/adapter.ts`. Six unit tests in `adapter-sampling.test.ts` assert the typed shape per failure mode.
+
 ### Changed — host-sample marked experimental; default Anthropic env var renamed
 
 The `host-sample` participant kind is now positioned as experimental and **Claude Desktop only**. Of the hosts this server commonly runs under (Claude Desktop, Claude Code, Cursor, Windsurf), only Claude Desktop currently advertises the MCP `sampling` capability — Claude Code support is tracked at [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785). The feature itself is unchanged; what changed is how it's pitched and shipped:
