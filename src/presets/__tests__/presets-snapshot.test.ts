@@ -30,6 +30,7 @@ function makeFullConfig(): LoadedConfig {
     },
     participants,
     providerByParticipant,
+    hostSampleParticipants: {},
     judge: undefined,
     defaults: {
       maxRounds: 4,

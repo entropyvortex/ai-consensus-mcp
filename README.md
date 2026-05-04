@@ -11,13 +11,16 @@ Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-cons
 ## Install in 30 seconds
 
 ```bash
-# 1. Create a provider config (see "Configure" below for the schema)
-cp consensus.config.example.json ~/.consensus.config.json
-$EDITOR ~/.consensus.config.json
+# 1. Build a provider config interactively (or copy + edit the example)
+npx -y ai-consensus-mcp config
+# → walks you through providers, participants, judge, and defaults
+# → writes ~/.consensus.config.json (atomic, schema-validated)
 
 # 2. Auto-register with every installed MCP host
 npx -y ai-consensus-mcp install --config ~/.consensus.config.json
 ```
+
+Prefer to edit by hand? `cp consensus.config.example.json ~/.consensus.config.json && $EDITOR ~/.consensus.config.json` works too — see the "Configure" section below for the schema.
 
 The installer detects Claude Code, Cursor, and Windsurf and merges a `consensus` server entry into each one's MCP config (atomic write, never clobbers other entries). Restart the host afterwards — the `consensus` tool plus five preset variants (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`) appear in autocomplete.
 
@@ -27,6 +30,7 @@ Scope the run with `--hosts claude-code,cursor`. Run `npx ai-consensus-mcp insta
 
 - **Six MCP tools, one config.** The generic `consensus` tool plus five task-tuned presets (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`). Invoke a preset; get a curated panel and tuned defaults without touching the knobs.
 - **Any OpenAI-compatible provider.** xAI Grok, Anthropic (via OpenAI-compat endpoint), OpenAI, Groq, Together, Fireworks, or your private gateway. One adapter, configurable per participant.
+- **The calling agent can also play (experimental).** A participant can be `kind: "host-sample"`, in which case the MCP host answers via [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) — its own model takes a seat at the roundtable, no extra API key. **Today this only works in Claude Desktop**; Claude Code, Cursor, and Windsurf don't advertise the `sampling` capability yet (tracking: [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)). See [the host-sample section](#participants-can-be-the-calling-host).
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.
 - **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `ai-consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
 
@@ -57,7 +61,17 @@ npm run build
 
 ## Configure
 
-Copy the example and edit it:
+### Option A — interactive editor
+
+```bash
+ai-consensus-mcp config                                  # edits ~/.consensus.config.json
+ai-consensus-mcp config --config ./project.config.json   # any path; created if missing
+ai-consensus-mcp configure                               # alias
+```
+
+The editor (`@inquirer/prompts`-based) walks you through every section — providers, participants, judge, defaults — with inline help. The full file is checked against the same Zod schema the server uses on startup before saving, so a config that quits the editor cleanly is one the server will accept. Quit any time with `Discard & exit` or Ctrl-C; nothing is written until you choose `Save & exit`. Writes are atomic (`fs.rename(2)`), so a crash mid-save can't leave a half-written file.
+
+### Option B — copy the example and edit it
 
 ```bash
 cp consensus.config.example.json ~/.consensus.config.json
@@ -74,7 +88,7 @@ Minimal shape:
     },
     "anthropic": {
       "baseUrl": "https://api.anthropic.com/v1",
-      "apiKeyEnv": "ANTHROPIC_API_KEY"
+      "apiKeyEnv": "CONSENSUS_ANTHROPIC_API_KEY"
     }
   },
   "participants": [
@@ -102,8 +116,16 @@ providers.<id>.apiKeyEnv       string   Name of the env var holding the API key.
 providers.<id>.extraHeaders    object?  Static headers sent on every request (rarely needed).
 
 participants[].id              string   Stable participant id (appears in events + progress).
-participants[].provider        string   Key into providers.
+participants[].kind            enum?    "provider" (default) or "host-sample". host-sample
+                                        participants are answered by the calling MCP host's
+                                        own LLM via sampling/createMessage; they do not
+                                        declare a provider or modelId.
+participants[].provider        string   Key into providers. Required when kind="provider".
 participants[].modelId         string   Opaque model id the provider accepts.
+                                        Required when kind="provider".
+participants[].modelHint       string?  Soft preference forwarded to the host as
+                                        modelPreferences.hints[0].name. Only used when
+                                        kind="host-sample"; hosts may ignore it.
 participants[].personaId       enum     One of: pessimist, first-principles, vc-specialist,
                                         scientific-skeptic, optimistic-futurist,
                                         devils-advocate, domain-expert.
@@ -127,11 +149,45 @@ defaults.useJudge              bool?    Defaults true if `judge` is declared, el
 
 Every field not in that list is rejected by the config loader — typos fail loudly rather than silently.
 
+### Participants can be the calling host
+
+> **Status: experimental, Claude Desktop only.** Of the hosts this server commonly runs under (Claude Desktop, Claude Code, Cursor, Windsurf), **only Claude Desktop currently advertises the MCP `sampling` capability**. In any other host the tool will return an `isError` naming the host-sample participant. Claude Code support is tracked at [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785) — when it lands, existing host-sample configs activate without changes.
+
+Sometimes you want the agent that's _invoking_ the consensus tool to also be one of the voices at the table. Set `kind: "host-sample"` on a participant and the server fulfils that participant's turns by issuing an MCP [`sampling/createMessage`](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) request back to the host. The host's LLM (whatever model it happens to be running) gets the persona system prompt, answers, and the engine continues. No extra API key, no extra provider entry.
+
+```jsonc
+{
+  "providers": {
+    "xai": { "baseUrl": "https://api.x.ai/v1", "apiKeyEnv": "GROK_API_KEY" },
+  },
+  "participants": [
+    { "id": "grok", "provider": "xai", "modelId": "grok-4", "personaId": "pessimist" },
+    {
+      "kind": "host-sample",
+      "id": "self",
+      "personaId": "domain-expert",
+      "modelHint": "claude-sonnet", // optional — most users skip this
+    },
+  ],
+}
+```
+
+That's it. When `consensus` runs and `self`'s turn comes up, the host (Claude Desktop) is the one drafting the Domain Expert response. Claude Desktop prompts the user before each sampling call (human-in-the-loop), so you'll see and approve each one.
+
+**Things to know:**
+
+- **Host support is the gating constraint.** Claude Desktop advertises `sampling` and works today. Claude Code, Cursor, Windsurf, and Codex CLI do not yet — invoking a host-sample participant from any of those returns an `isError` naming the participant rather than hanging. Until upstream support lands (Claude Code: [#1785](https://github.com/anthropics/claude-code/issues/1785)), use a configured provider (Anthropic, OpenAI, Groq, etc.) for those hosts.
+- **You don't pin the model.** Whatever the host has loaded answers — Sonnet, Opus, GPT-5, etc. `modelHint` is a soft preference; hosts can (and often will) ignore it.
+- **Cost lands on the host.** Sampling tokens bill against the user's host session, not your provider key.
+- **No streaming.** MCP sampling returns a complete message; per-token streaming events aren't forwarded for host-sample participants. The engine drops token-level events on this server anyway, so this is rarely visible.
+- **The judge is provider-only for now.** `judge.kind = "host-sample"` isn't supported yet — the synthesizer always routes through a configured provider.
+- **Configs with zero providers are valid** if every participant is `host-sample`. Two host-sample participants with different personas give you a "two voices, same model" debate that still runs the full CVP loop.
+
 ## Run standalone
 
 ```bash
 export GROK_API_KEY=xai-...
-export ANTHROPIC_API_KEY=sk-ant-...
+export CONSENSUS_ANTHROPIC_API_KEY=sk-ant-...
 
 ai-consensus-mcp --config ./consensus.config.json
 ```
@@ -158,7 +214,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
       "args": ["--config", "/absolute/path/to/consensus.config.json"],
       "env": {
         "GROK_API_KEY": "xai-...",
-        "ANTHROPIC_API_KEY": "sk-ant-..."
+        "CONSENSUS_ANTHROPIC_API_KEY": "sk-ant-..."
       }
     }
   }

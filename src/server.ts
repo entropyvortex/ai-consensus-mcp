@@ -17,8 +17,8 @@ import {
   type ConsensusResult,
   type Participant,
 } from "ai-consensus-core";
-import type { LoadedConfig, ResolvedDefaults } from "./config.js";
-import { createOpenAICompatibleCaller } from "./adapter.js";
+import type { HostSampleMeta, LoadedConfig, ResolvedDefaults } from "./config.js";
+import { createRoutedCaller } from "./adapter.js";
 import { wireEngineProgress } from "./progress.js";
 import { BUILT_IN_PRESETS } from "./presets/definitions/index.js";
 import { createRegistry, type PresetRegistry } from "./presets/registry.js";
@@ -159,6 +159,7 @@ export function createMcpServer(config: LoadedConfig): Server {
     if (toolName === "consensus") {
       return runGenericConsensus({
         config,
+        server,
         request,
         extra,
       });
@@ -169,6 +170,7 @@ export function createMcpServer(config: LoadedConfig): Server {
       return runPresetConsensus({
         preset,
         config,
+        server,
         request,
         extra,
       });
@@ -180,16 +182,56 @@ export function createMcpServer(config: LoadedConfig): Server {
   return server;
 }
 
+// ── Sampling support helpers ─────────────────────────────────
+
+function filterHostSampleParticipants(
+  source: Record<string, HostSampleMeta>,
+  selectedIds: ReadonlySet<string>,
+): Record<string, HostSampleMeta> {
+  const out: Record<string, HostSampleMeta> = {};
+  for (const [id, meta] of Object.entries(source)) {
+    if (selectedIds.has(id)) out[id] = meta;
+  }
+  return out;
+}
+
+/**
+ * Confirm the connected MCP host advertised the `sampling` capability if
+ * any participants in this run rely on it. Hosts that don't support sampling
+ * (Codex CLI, older Cursor builds, smoke-test clients) silently fail or
+ * never reply otherwise; failing fast with a clear message is friendlier.
+ */
+function ensureSamplingSupported(
+  server: Server,
+  hostSampleParticipants: Record<string, HostSampleMeta>,
+): Error | undefined {
+  const ids = Object.keys(hostSampleParticipants);
+  if (ids.length === 0) return undefined;
+  const caps = server.getClientCapabilities();
+  if (caps?.sampling) return undefined;
+  const hostName = server.getClientVersion()?.name ?? "this MCP host";
+  return new Error(
+    `host-sample participant${ids.length === 1 ? "" : "s"} ${ids
+      .map((id) => `"${id}"`)
+      .join(
+        ", ",
+      )} require${ids.length === 1 ? "s" : ""} the host to support MCP sampling, but ${hostName} did not advertise the \`sampling\` capability. Claude Desktop supports sampling today; Claude Code does not yet (tracking: anthropics/claude-code#1785). Either invoke from a host that advertises sampling, or change the participant${ids.length === 1 ? "" : "s"} to use a configured provider (Anthropic, OpenAI, Groq, etc.).`,
+  );
+}
+
 // ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
 interface DispatchArgs {
   config: LoadedConfig;
+  /** Active MCP server — needed so `sampling/createMessage` can flow back to
+   *  whichever host invoked the tool, for host-sample participants. */
+  server: Server;
   request: { params: { arguments?: unknown; _meta?: { progressToken?: string | number } } };
   extra: { signal?: AbortSignal; sendNotification?: unknown } | undefined;
 }
 
 async function runGenericConsensus(args: DispatchArgs) {
-  const { config, request, extra } = args;
+  const { config, server, request, extra } = args;
   const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
   if (!parsed.success) {
     return toolError(formatZodIssues(parsed.error));
@@ -206,6 +248,18 @@ async function runGenericConsensus(args: DispatchArgs) {
     return toolError("Judge was requested but the server config does not declare a `judge` entry.");
   }
 
+  // Filter the host-sample map to just the participants this run includes,
+  // then check the host advertised the sampling capability if any are in play.
+  const selectedIds = new Set(selectedParticipants.map((p) => p.id));
+  const hostSampleParticipants = filterHostSampleParticipants(
+    config.hostSampleParticipants,
+    selectedIds,
+  );
+  const samplingCheck = ensureSamplingSupported(server, hostSampleParticipants);
+  if (samplingCheck instanceof Error) {
+    return toolError(samplingCheck.message);
+  }
+
   const options = buildEngineOptions({
     question: input.prompt,
     participants: selectedParticipants,
@@ -218,9 +272,11 @@ async function runGenericConsensus(args: DispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createOpenAICompatibleCaller({
+  const caller = createRoutedCaller({
     providers: config.providers,
     providerByParticipant: config.providerByParticipant,
+    hostSampleParticipants,
+    server,
   });
 
   const engine = new ConsensusEngine(caller);
@@ -246,7 +302,7 @@ interface PresetDispatchArgs extends DispatchArgs {
 }
 
 async function runPresetConsensus(args: PresetDispatchArgs) {
-  const { preset, config, request, extra } = args;
+  const { preset, config, server, request, extra } = args;
 
   const schema: PresetInputZodSchema = buildPresetZodSchema(preset);
   const parsed = schema.safeParse(request.params.arguments ?? {});
@@ -274,6 +330,11 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
     return toolError(resolved.message);
   }
 
+  const samplingCheck = ensureSamplingSupported(server, resolved.hostSampleParticipants);
+  if (samplingCheck instanceof Error) {
+    return toolError(samplingCheck.message);
+  }
+
   const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
   // Preset runs don't *require* a judge — they degrade gracefully to raw panel
   // output when none is configured. The formatter notes the absence.
@@ -290,9 +351,11 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createOpenAICompatibleCaller({
+  const caller = createRoutedCaller({
     providers: config.providers,
     providerByParticipant: resolved.providerByParticipant,
+    hostSampleParticipants: resolved.hostSampleParticipants,
+    server,
   });
 
   const engine = new ConsensusEngine(caller);

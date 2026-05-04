@@ -23,6 +23,7 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
       { id: "p2", modelId: "model-b", persona: PERSONAS[1]! },
     ],
     providerByParticipant: { p1: "test", p2: "test" },
+    hostSampleParticipants: {},
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -54,6 +55,7 @@ function makeUnrunnableForCodeReviewConfig(): LoadedConfig {
       { id: "p_vc", modelId: "model-b", persona: vc },
     ],
     providerByParticipant: { p_pessimist: "test", p_vc: "test" },
+    hostSampleParticipants: {},
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -84,6 +86,7 @@ function makeFullPanelConfig(): LoadedConfig {
     },
     participants,
     providerByParticipant,
+    hostSampleParticipants: {},
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -325,6 +328,32 @@ describe("createMcpServer — input validation via tool calls", () => {
     expect(result.isError).toBe(true);
     const content = result.content as { type: string; text?: string }[];
     expect(content[0]?.text ?? "").toMatch(/invalid input/i);
+    await env.close();
+  });
+
+  it("rejects a run that includes a host-sample participant when the host did not advertise the sampling capability", async () => {
+    // Default test client (above) connects without `capabilities.sampling`.
+    // A run that pulls in a host-sample participant must fail fast with a
+    // clear message instead of hanging forever waiting for a reply.
+    const config = makeConfig({
+      participants: [
+        { id: "p1", modelId: "model-a", persona: PERSONAS[0]! },
+        // host-sample participant — uses synthetic modelId, no provider mapping.
+        { id: "p_self", modelId: "host-sample", persona: PERSONAS[1]! },
+      ],
+      providerByParticipant: { p1: "test" },
+      hostSampleParticipants: { p_self: { modelHint: undefined } },
+    });
+    const env = await connect(config);
+    const result = await env.client.callTool({
+      name: "consensus",
+      arguments: { prompt: "hello" },
+    });
+    expect(result.isError).toBe(true);
+    const content = result.content as { type: string; text?: string }[];
+    const text = content[0]?.text ?? "";
+    expect(text).toMatch(/sampling/i);
+    expect(text).toContain("p_self");
     await env.close();
   });
 });
