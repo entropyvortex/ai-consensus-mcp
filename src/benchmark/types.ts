@@ -175,16 +175,9 @@ export interface BenchReport {
  * integer the engine accepts as `randomSeed`. Uses small odd-prime multipliers
  * so adjacent cases / runs don't end up with correlated seeds.
  */
-export function deriveRandomSeed(
-  baseSeed: number,
-  caseIndex: number,
-  runIndex: number,
-): number {
+export function deriveRandomSeed(baseSeed: number, caseIndex: number, runIndex: number): number {
   // Bit-mask down to 31 bits — engine's clampInt expects a number that fits
   // in a non-negative integer. 2^31-1 is plenty of entropy for shuffle seeding.
-  const mixed = (Math.trunc(baseSeed) * 2654435761 +
-    caseIndex * 40503 +
-    runIndex * 7919) >>>
-    0;
+  const mixed = (Math.trunc(baseSeed) * 2654435761 + caseIndex * 40503 + runIndex * 7919) >>> 0;
   return mixed & 0x7fffffff;
 }

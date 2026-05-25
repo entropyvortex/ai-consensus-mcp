@@ -5,6 +5,60 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+_None yet — see [0.12.0] below for the most recent release._
+
+## [0.12.0] — 2026-05-25
+
+ASI-grade foundation: a definitive open primitive for production-grade
+multi-model reasoning. Three load-bearing additions land together —
+v2 expert panels, a benchmarking CLI, and an opt-in persistent
+project-memory layer — alongside a polish pass that ratchets test
+coverage, fixes the linter, harmonises versions, and adds tag-based
+panel discovery plus an end-to-end memory recall contract.
+
+### Migrating from v0.11 → v0.12
+
+**No breaking changes.** Existing configs and integrations continue to
+work unchanged. See [`docs/migration-v0.12.md`](./docs/migration-v0.12.md)
+for the full upgrade checklist.
+
+- Existing `consensus.config.json` files are accepted verbatim — every
+  new field is additive.
+- The 5 v1 presets (`consensus_code_review`, `consensus_architecture_debate`,
+  `consensus_research_synthesis`, `consensus_decision_making`,
+  `consensus_debug_postmortem`) ship unchanged: same panel, same
+  defaults, same judge prompts.
+- The MCP server now advertises **14 tools** instead of 6 — same
+  `consensus` + 5 v1 presets + 8 new v2 expert panels. Hosts that
+  enumerate per-tool will see the extra panels appear automatically.
+- Opt into the memory layer by adding a `memory: { "enabled": true }`
+  block to your config. Off by default; three additional tools
+  (`consensus_recall`, `consensus_project_memory`,
+  `consensus_what_we_decided`) appear when enabled.
+
+### Polish pass (post-foundational commit)
+
+- Version harmonised across `package.json`, `src/version.ts`, and
+  `server.json` to `0.12.0` (previously diverged: 0.11.0 / 0.10.0).
+- Lint clean: 5 errors + 17 warnings → 0 / 0. Refactored
+  `validateMeta` to lean on TypeScript types rather than re-validating
+  field shapes that the type system already guarantees.
+- `PresetRegistry.listByTag(tag)` and `PresetRegistry.allTags()` added
+  so panels are discoverable by `meta.tags`. The bench CLI's
+  `--list-panels` now surfaces tags + a tag index for quick discovery.
+- Bench `--help` gains a Determinism section and worked examples.
+- **`bench --quick`** — single-case, single-run, deterministic-seed
+  invocation. Cheapest end-to-end smoke check that a panel is wired
+  correctly. Explicit `--runs` / `--seed` / `--cases` still override.
+- Installer post-install message now accurately describes the 14-tool
+  inventory and the additional memory tools (was stale "6 tools").
+- New end-to-end contract tests covering `consensus_recall` /
+  `consensus_project_memory` / `consensus_what_we_decided` against a
+  pre-populated store — locks the server → store → query → response
+  path so a regression in any layer breaks a single test.
+- `docs/migration-v0.12.md` documents the v0.11 → v0.12 upgrade path.
+- Test footprint: +9 tests (316 total, all green). Build clean.
+
 ### Added — v2 expert panels, bench CLI, `panel` arg on generic tool
 
 Phase 1 of the v0.12 roadmap: turn the project into a definitive open-
@@ -41,8 +95,6 @@ source primitive for production-grade multi-model consensus reasoning.
 Test footprint: +93 tests (262 total, up from 169). All Phase 1 additions
 covered by R6-grade contract tests — each test names the specific
 invariant it locks down.
-
-
 
 ### Added — `CODE_OF_CONDUCT.md` and `.github/` issue / PR templates
 

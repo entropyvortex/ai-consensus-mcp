@@ -128,6 +128,11 @@ describe("runMain — top-level flags", () => {
       const out = stdoutOutput.join("");
       expect(out).toContain("architecture_v2");
       expect(out).toContain("security_redteam");
+      // Tag index — v0.12 polish. Locks the contract that tags surface
+      // in --list-panels so users can discover panels by category.
+      expect(out).toMatch(/tags:/);
+      expect(out).toMatch(/Tag index:/);
+      expect(out).toMatch(/--filter-tag/);
     } finally {
       process.stdout.write = originalStdout;
     }

@@ -123,11 +123,27 @@ export const DECISION_MAKING_V2_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Ranked options", description: "Best-to-worst with EV, reversibility, risks, upsides, and agreement strength." },
-        { heading: "Recommendation", description: "Single recommended option with dominant reason." },
-        { heading: "Tripwire conditions", description: "Specific measurable signals that would flip the ranking." },
-        { heading: "Bets we're consciously not making", description: "Rejected alternatives, preserving decision context." },
-        { heading: "Information we still need", description: "Missing inputs and why they matter." },
+        {
+          heading: "Ranked options",
+          description:
+            "Best-to-worst with EV, reversibility, risks, upsides, and agreement strength.",
+        },
+        {
+          heading: "Recommendation",
+          description: "Single recommended option with dominant reason.",
+        },
+        {
+          heading: "Tripwire conditions",
+          description: "Specific measurable signals that would flip the ranking.",
+        },
+        {
+          heading: "Bets we're consciously not making",
+          description: "Rejected alternatives, preserving decision context.",
+        },
+        {
+          heading: "Information we still need",
+          description: "Missing inputs and why they matter.",
+        },
       ],
       tags: ["LOW", "MEDIUM", "HIGH"],
     },

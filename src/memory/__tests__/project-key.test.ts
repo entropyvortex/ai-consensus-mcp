@@ -7,11 +7,7 @@ import { mkdtemp, symlink, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  projectKeyForPath,
-  resolveProjectIdentity,
-  resolveProjectPath,
-} from "../project-key.js";
+import { projectKeyForPath, resolveProjectIdentity, resolveProjectPath } from "../project-key.js";
 
 let workdir: string;
 beforeEach(async () => {

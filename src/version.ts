@@ -4,4 +4,4 @@
 // pre-publish workflow asserts it matches the git tag.
 
 export const SERVER_NAME = "ai-consensus-mcp";
-export const SERVER_VERSION = "0.10.0";
+export const SERVER_VERSION = "0.12.0";

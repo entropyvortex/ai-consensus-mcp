@@ -188,7 +188,7 @@ describe("createMemoryStore — F5 schema versioning + forward compat", () => {
       projectPath,
       panelId: "p",
       question: "Q-future",
-      result: futureResult as unknown as ConsensusResult,
+      result: futureResult,
     });
     const back = await store.get(id);
     expect(back).toBeDefined();

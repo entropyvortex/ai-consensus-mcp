@@ -53,6 +53,7 @@ A future JSON-contribution path can be layered on `mergePresets`'s
 existing `newPresets` extension point without forking the system.
 
 **Tests** (`executed`):
+
 - `src/presets/__tests__/registry-meta.test.ts` — 13 contract tests
   covering semver, rationale, expected-output-shape, tags, and
   duplicate-heading rejection.
@@ -62,16 +63,16 @@ existing `newPresets` extension point without forking the system.
 **Decision** (`executed`): Shipped eight v2 panels in
 `src/presets/definitions/`:
 
-| Id | v | Status |
-| --- | --- | --- |
-| `architecture_v2` | 2.0.0 | Upgrade of architecture_debate |
-| `code_review_v2` | 2.0.0 | Upgrade of code_review |
-| `research_synthesis_v2` | 2.0.0 | Upgrade of research_synthesis |
-| `decision_making_v2` | 2.0.0 | Upgrade of decision_making |
-| `incident_postmortem_v2` | 2.0.0 | Upgrade of debug_postmortem |
-| `security_redteam` | 1.0.0 | New |
-| `ml_research_2026` | 1.0.0 | New |
-| `product_strategy` | 1.0.0 | New |
+| Id                       | v     | Status                         |
+| ------------------------ | ----- | ------------------------------ |
+| `architecture_v2`        | 2.0.0 | Upgrade of architecture_debate |
+| `code_review_v2`         | 2.0.0 | Upgrade of code_review         |
+| `research_synthesis_v2`  | 2.0.0 | Upgrade of research_synthesis  |
+| `decision_making_v2`     | 2.0.0 | Upgrade of decision_making     |
+| `incident_postmortem_v2` | 2.0.0 | Upgrade of debug_postmortem    |
+| `security_redteam`       | 1.0.0 | New                            |
+| `ml_research_2026`       | 1.0.0 | New                            |
+| `product_strategy`       | 1.0.0 | New                            |
 
 Each panel ships full `meta` — rationale, expected output shape, tags.
 The five v1 presets stay unchanged for backward compatibility.
@@ -84,6 +85,7 @@ personas added — the task-system-suffix mechanism already does the
 heavy lifting for specialization.
 
 **Tests** (`executed`):
+
 - `presets-snapshot.test.ts` updated: separate assertions for v1 and
   v2 slates + a contract that every v2 panel has `meta.version`,
   `meta.rationale`, non-empty `expectedOutputShape.sections`, and
@@ -93,12 +95,13 @@ heavy lifting for specialization.
 ### 1.3. Benchmark module
 
 **Decision** (`executed`): New `src/benchmark/` module with:
+
 - `types.ts` — `BenchCase`, `BenchRun`, `BenchReport`, `BenchMetrics`,
-  + zod schemas for JSON case files.
+  - zod schemas for JSON case files.
 - `runner.ts` — `runSuite()` orchestrates (cases × runs) of consensus
-  + baseline against an injected `ModelCaller`. Deterministic per-run
-  random seed derivation via `deriveRandomSeed(baseSeed, caseIdx, runIdx)`
-  with prime-multiplier mixing.
+  - baseline against an injected `ModelCaller`. Deterministic per-run
+    random seed derivation via `deriveRandomSeed(baseSeed, caseIdx, runIdx)`
+    with prime-multiplier mixing.
 - `metrics.ts` — pure reducers over `BenchRun[]`: agreement rate
   (final σ ≤ threshold), convergence speed avg, early-stop rate,
   judge confidence distribution, inter-rater reliability proxy,
@@ -119,6 +122,7 @@ to average out non-determinism on real LLM calls. The runner is
 fully deterministic when given a mock ModelCaller (tests exploit this).
 
 **Tests** (`executed`):
+
 - `metrics.test.ts` — 14 tests covering every metric formula.
 - `runner.test.ts` — 11 tests including determinism via seed,
   failure capture, abort handling, progress events.
@@ -145,6 +149,7 @@ to `cp src/benchmark/fixtures/*.json dist/benchmark/fixtures/`.
 Verified with `npm run build && node dist/index.js bench --list-panels`.
 
 **Tests** (`executed`):
+
 - `bench-args.test.ts` — 16 tests for arg parsing edge cases.
 - `main-dispatch.test.ts` — bench --help and bench --list-panels
   dispatch correctly; missing-config path returns 2.
@@ -158,6 +163,7 @@ Mutually exclusive with `participantIds` — a panel id selects the
 panel composition; `participantIds` picks raw participants.
 
 **Tests** (`executed`):
+
 - `server-panel-arg.test.ts` — 4 contract tests: schema advertises
   `panel`; mutual exclusion enforced; unknown id surfaces list of
   available; unrunnable panel returns the missing-personas message.
@@ -165,6 +171,7 @@ panel composition; `participantIds` picks raw participants.
 ### 1.6. Documentation
 
 **Decision** (`executed`):
+
 - `docs/expert-panels.md` — full catalogue with rationale + expected
   output shape per panel, three invocation paths, contribution guide,
   versioning policy.
@@ -186,6 +193,7 @@ scope: cross-machine sync, encryption at rest, secret-prefix scrubbing.
 ### 2.1. Memory layer implementation
 
 **Decision** (`executed`): New `src/memory/` module:
+
 - `types.ts` — `StoredEntry` (with `schemaVersion`), `IndexLine`,
   `RecallQuery`, `RecallHit`, `MemoryConfig`, `ResolvedMemoryConfig`.
 - `store.ts` — `createMemoryStore()` returning a `MemoryStore` with
@@ -196,6 +204,7 @@ scope: cross-machine sync, encryption at rest, secret-prefix scrubbing.
   (premortem F4).
 
 Wired into `src/server.ts`:
+
 - `resolveMemoryContext(config)` builds a lazy store handle when
   `config.memory.enabled === true`.
 - `ListTools` advertises three new tools — `consensus_recall`,
@@ -206,11 +215,13 @@ Wired into `src/server.ts`:
   the run.
 
 Wired into `src/config.ts`:
+
 - `MemoryConfigSchema` added under `memory:` in the raw config.
 - `resolveMemoryRuntime()` applies defaults; the resolved shape is
   carried on `LoadedConfig.memory`.
 
 **Gating mitigations implemented** (`executed`):
+
 - F1 (atomic writes + drift): write `.tmp` → rename → append index.
   Recall skips orphaned index entries; never crashes. `rebuildIndex()`
   recovers from index corruption.
@@ -233,11 +244,13 @@ Wired into `src/config.ts`:
   Memory tools are not advertised when disabled.
 
 **Deferred from premortem** (`assumed`, documented):
+
 - F2 secret scrubbing — partial only (documentation). Phase 2.2 ratchet.
 - F3 embedding ranker — keyword + LLM-on-demand is the Phase 2.1 cut.
 - Admin CLI commands (`memory list/show/wipe`) — not gating; defer.
 
 **Tests** (`executed`):
+
 - `memory/__tests__/project-key.test.ts` — 8 tests including symlink
   resolution and collision resistance.
 - `memory/__tests__/query.test.ts` — 13 tests covering whole-token
@@ -250,6 +263,7 @@ Wired into `src/config.ts`:
 ### 2.2. Memory documentation
 
 **Decision** (`executed`):
+
 - `docs/memory-layer.md` — what the layer does, threat model and
   storage trade-offs, full config reference, atomic-write contract,
   schema-versioning approach, all three tools with examples,

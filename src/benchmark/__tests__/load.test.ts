@@ -74,10 +74,7 @@ describe("loadCaseFile — failures reference the source path", () => {
   });
 
   it("rejects schema violations with a path-tagged error", async () => {
-    const p = await write(
-      "missing.json",
-      JSON.stringify({ version: "1.0.0", cases: [] }),
-    );
+    const p = await write("missing.json", JSON.stringify({ version: "1.0.0", cases: [] }));
     await expect(loadCaseFile(p)).rejects.toThrow(p);
     await expect(loadCaseFile(p)).rejects.toThrow(/failed validation/);
   });

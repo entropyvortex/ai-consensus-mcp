@@ -145,13 +145,36 @@ export const INCIDENT_POSTMORTEM_V2_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Summary", description: "What broke, scope, duration, top remediation in 2-4 sentences." },
-        { heading: "Timeline", description: "Timestamped events with computed gaps (detection, escalation, mitigation, recovery)." },
-        { heading: "Root cause", description: "5-whys chain ending at a real mechanism (not an organisational gap)." },
-        { heading: "Contributing factors", description: "Organisational/process factors that made it worse, separated from root cause." },
-        { heading: "Detection gap analysis", description: "Why detection lagged and what signal would catch it earlier." },
-        { heading: "Remediation items", description: "Severity-tagged actions with owner role, gap-closed, and cost." },
-        { heading: "Class-of-incident prevention", description: "Architectural change that prevents the whole failure category." },
+        {
+          heading: "Summary",
+          description: "What broke, scope, duration, top remediation in 2-4 sentences.",
+        },
+        {
+          heading: "Timeline",
+          description:
+            "Timestamped events with computed gaps (detection, escalation, mitigation, recovery).",
+        },
+        {
+          heading: "Root cause",
+          description: "5-whys chain ending at a real mechanism (not an organisational gap).",
+        },
+        {
+          heading: "Contributing factors",
+          description:
+            "Organisational/process factors that made it worse, separated from root cause.",
+        },
+        {
+          heading: "Detection gap analysis",
+          description: "Why detection lagged and what signal would catch it earlier.",
+        },
+        {
+          heading: "Remediation items",
+          description: "Severity-tagged actions with owner role, gap-closed, and cost.",
+        },
+        {
+          heading: "Class-of-incident prevention",
+          description: "Architectural change that prevents the whole failure category.",
+        },
       ],
       tags: ["HIGH", "MEDIUM", "LOW"],
     },

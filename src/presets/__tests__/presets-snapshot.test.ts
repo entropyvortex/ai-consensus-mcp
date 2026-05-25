@@ -31,7 +31,13 @@ function makeFullConfig(): LoadedConfig {
     participants,
     providerByParticipant,
     hostSampleParticipants: {},
-    memory: { enabled: false, storageRoot: "/tmp/test-memory", maxResults: 1000, maxAgeDays: 365, raw: undefined },
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -92,7 +98,10 @@ describe("BUILT_IN_PRESETS — structural invariants", () => {
       expect(preset.meta, `preset ${preset.id} meta`).toBeDefined();
       expect(preset.meta?.version, `${preset.id} version`).toMatch(/^\d+\.\d+\.\d+/);
       expect(preset.meta?.rationale, `${preset.id} rationale`).toBeTruthy();
-      expect(preset.meta?.expectedOutputShape?.sections.length, `${preset.id} sections`).toBeGreaterThan(0);
+      expect(
+        preset.meta?.expectedOutputShape?.sections.length,
+        `${preset.id} sections`,
+      ).toBeGreaterThan(0);
       expect(preset.meta?.tags?.length, `${preset.id} tags`).toBeGreaterThan(0);
     }
   });

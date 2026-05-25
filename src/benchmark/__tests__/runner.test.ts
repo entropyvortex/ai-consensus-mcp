@@ -26,6 +26,7 @@ interface MockCallerOptions {
 
 function makeMockCaller(opts: MockCallerOptions = {}): ModelCaller {
   return async (req: ModelCallRequest): Promise<ModelCallResponse> => {
+    await Promise.resolve();
     if (opts.failParticipantIds?.has(req.participantId)) {
       throw new Error(`mock failure for ${req.participantId}`);
     }
@@ -67,9 +68,7 @@ function makeMockCaller(opts: MockCallerOptions = {}): ModelCaller {
     const conf = opts.participantConfidence?.[req.participantId] ?? 70;
     return {
       content: `Participant ${req.participantId} response for round ${req.round}.\nCONFIDENCE: ${conf}`,
-      ...(opts.withUsage
-        ? { usage: { inputTokens: 80, outputTokens: 60, totalTokens: 140 } }
-        : {}),
+      ...(opts.withUsage ? { usage: { inputTokens: 80, outputTokens: 60, totalTokens: 140 } } : {}),
     };
   };
 }

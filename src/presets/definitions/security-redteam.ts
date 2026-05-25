@@ -138,11 +138,27 @@ export const SECURITY_REDTEAM_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Threat model", description: "Assets protected, trust boundaries, realistic adversaries." },
-        { heading: "Attack tree", description: "Top attack paths ranked by severity × likelihood with preconditions." },
-        { heading: "Confirmed vulnerabilities", description: "Findings tagged with severity, mechanism, repro outline, impact, CWE/OWASP." },
-        { heading: "Prioritised mitigations", description: "Concrete fixes ranked by leverage with cost and detection counterpart." },
-        { heading: "Open attack surface", description: "Unanalyzed areas and what's needed to close them." },
+        {
+          heading: "Threat model",
+          description: "Assets protected, trust boundaries, realistic adversaries.",
+        },
+        {
+          heading: "Attack tree",
+          description: "Top attack paths ranked by severity × likelihood with preconditions.",
+        },
+        {
+          heading: "Confirmed vulnerabilities",
+          description:
+            "Findings tagged with severity, mechanism, repro outline, impact, CWE/OWASP.",
+        },
+        {
+          heading: "Prioritised mitigations",
+          description: "Concrete fixes ranked by leverage with cost and detection counterpart.",
+        },
+        {
+          heading: "Open attack surface",
+          description: "Unanalyzed areas and what's needed to close them.",
+        },
       ],
       tags: ["BLOCKER", "HIGH", "MEDIUM", "LOW"],
     },

@@ -20,6 +20,18 @@ describe("parseBenchArgs — basic flags", () => {
     expect(a.baseSeed).toBeUndefined();
     expect(a.includeFullResults).toBe(false);
     expect(a.quiet).toBe(false);
+    expect(a.quick).toBe(false);
+  });
+
+  it("parses --quick", () => {
+    expect(ok(parseBenchArgs(["--quick"])).quick).toBe(true);
+  });
+
+  it("--quick is independent of --runs/--seed (both can coexist)", () => {
+    const a = ok(parseBenchArgs(["--quick", "--runs", "3", "--seed", "42"]));
+    expect(a.quick).toBe(true);
+    expect(a.runs).toBe(3);
+    expect(a.baseSeed).toBe(42);
   });
 
   it("parses --help / -h", () => {
@@ -65,9 +77,7 @@ describe("parseBenchArgs — value-bearing flags", () => {
   });
 
   it("parses --baseline-model and --baseline-provider", () => {
-    const a = ok(
-      parseBenchArgs(["--baseline-model", "gpt-5", "--baseline-provider", "openai"]),
-    );
+    const a = ok(parseBenchArgs(["--baseline-model", "gpt-5", "--baseline-provider", "openai"]));
     expect(a.baselineModelId).toBe("gpt-5");
     expect(a.baselineProviderId).toBe("openai");
   });

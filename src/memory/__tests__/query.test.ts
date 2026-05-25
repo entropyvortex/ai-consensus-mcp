@@ -88,10 +88,7 @@ describe("scoreEntry — F9 whole-token matching", () => {
   });
 
   it("credits tag matches at half-weight", () => {
-    const r = scoreEntry(
-      makeLine("unrelated text", ["security", "v2"]),
-      "security",
-    );
+    const r = scoreEntry(makeLine("unrelated text", ["security", "v2"]), "security");
     // 1 token, half-weight tag match → score = 0.5
     expect(r.score).toBe(0.5);
     expect(r.fragments[0]).toBe("[tag:security]");
@@ -99,10 +96,7 @@ describe("scoreEntry — F9 whole-token matching", () => {
 
   it("clamps the score to 1.0", () => {
     // A query with all tokens matching + tag matches stacks to >1, then clamps.
-    const r = scoreEntry(
-      makeLine("auth jwt token", ["auth"]),
-      "auth jwt token",
-    );
+    const r = scoreEntry(makeLine("auth jwt token", ["auth"]), "auth jwt token");
     expect(r.score).toBeLessThanOrEqual(1);
     expect(r.score).toBeGreaterThan(0.9);
   });

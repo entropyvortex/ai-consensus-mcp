@@ -77,9 +77,7 @@ export function parseCaseFile(json: string, sourceLabel = "<inline>"): BenchCase
     parsed = JSON.parse(json);
   } catch (err) {
     throw new Error(
-      `bench: ${sourceLabel}: not valid JSON: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      `bench: ${sourceLabel}: not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   const validated = BenchCaseFileSchema.safeParse(parsed);

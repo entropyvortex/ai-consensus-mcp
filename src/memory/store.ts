@@ -188,7 +188,10 @@ export async function createMemoryStore(args: CreateMemoryStoreArgs): Promise<Me
     // Drop expired entries first.
     const fresh = lines.filter((l) => now - l.storedAt <= maxAgeMs);
     // Then enforce maxResults — drop oldest.
-    const kept = fresh.slice().sort((a, b) => b.storedAt - a.storedAt).slice(0, maxResults);
+    const kept = fresh
+      .slice()
+      .sort((a, b) => b.storedAt - a.storedAt)
+      .slice(0, maxResults);
     const keptIds = new Set(kept.map((l) => l.id));
     const dropped = lines.filter((l) => !keptIds.has(l.id));
     for (const d of dropped) {
@@ -280,9 +283,7 @@ export async function createMemoryStore(args: CreateMemoryStoreArgs): Promise<Me
     } else {
       // Filter out zero-score entries, then sort by score desc, recency tiebreak.
       const matched = scored.filter((s) => s.score > 0);
-      matched.sort(
-        (a, b) => b.score - a.score || b.line.storedAt - a.line.storedAt,
-      );
+      matched.sort((a, b) => b.score - a.score || b.line.storedAt - a.line.storedAt);
       // If nothing matched, return empty rather than dumping unranked recents.
       scored.length = 0;
       scored.push(...matched);
@@ -340,7 +341,8 @@ export async function createMemoryStore(args: CreateMemoryStoreArgs): Promise<Me
       if (entry) newLines.push(buildIndexLine(entry));
     }
     newLines.sort((a, b) => a.storedAt - b.storedAt);
-    const body = newLines.map((l) => JSON.stringify(l)).join("\n") + (newLines.length > 0 ? "\n" : "");
+    const body =
+      newLines.map((l) => JSON.stringify(l)).join("\n") + (newLines.length > 0 ? "\n" : "");
     const tmpPath = `${indexPath}.tmp`;
     await writeFile(tmpPath, body, { encoding: "utf8", mode: 0o600 });
     await rename(tmpPath, indexPath);
@@ -365,10 +367,7 @@ export async function createMemoryStore(args: CreateMemoryStoreArgs): Promise<Me
  * probability is ~10⁻¹⁰ — safe within the retention cap.
  */
 function deriveEntryId(question: string, timestamp: number): string {
-  return createHash("sha256")
-    .update(`${timestamp}|${question}`, "utf8")
-    .digest("hex")
-    .slice(0, 12);
+  return createHash("sha256").update(`${timestamp}|${question}`, "utf8").digest("hex").slice(0, 12);
 }
 
 function buildIndexLine(entry: StoredEntry): IndexLine {
@@ -382,9 +381,7 @@ function buildIndexLine(entry: StoredEntry): IndexLine {
     tags: entry.tags,
     finalScore: typeof result.finalScore === "number" ? Math.round(result.finalScore) : -1,
     judgeConfidence:
-      typeof result.synthesis?.judgeConfidence === "number"
-        ? result.synthesis.judgeConfidence
-        : -1,
+      typeof result.synthesis?.judgeConfidence === "number" ? result.synthesis.judgeConfidence : -1,
   };
 }
 

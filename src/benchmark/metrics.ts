@@ -8,11 +8,7 @@
 // Naming follows the user-facing report: `agreementRate`, `convergenceSpeedAvg`,
 // `interRaterReliabilityProxy`, etc. — the column headers reviewers see.
 
-import type {
-  BenchRun,
-  BenchMetrics,
-  ConsensusOutcome,
-} from "./types.js";
+import type { BenchRun, BenchMetrics, ConsensusOutcome } from "./types.js";
 
 const DEFAULT_AGREEMENT_STDDEV_THRESHOLD = 15;
 
@@ -69,8 +65,7 @@ export function computeMetrics(
     .map((r) => r.consensus.judgeConfidence)
     .filter((c): c is number => typeof c === "number");
   const judgeConfidenceMean = judgeConfidences.length > 0 ? mean(judgeConfidences) : undefined;
-  const judgeConfidenceStddev =
-    judgeConfidences.length > 0 ? stddev(judgeConfidences) : undefined;
+  const judgeConfidenceStddev = judgeConfidences.length > 0 ? stddev(judgeConfidences) : undefined;
 
   // Inter-rater reliability proxy — average per-round stddev across all runs.
   // We invert and scale to 0..1: `1 - (meanStddev / 100)`. A panel that always
@@ -101,9 +96,7 @@ export function computeMetrics(
   }
   const tokenRatioAvg = tokenRatios.length > 0 ? mean(tokenRatios) : undefined;
 
-  const beatHits = counted.filter(
-    (r) => r.consensus.finalScore > r.baseline.confidence,
-  ).length;
+  const beatHits = counted.filter((r) => r.consensus.finalScore > r.baseline.confidence).length;
   const consensusBeatsBaselineConfidenceRate = beatHits / runsCounted;
 
   return {
@@ -132,7 +125,9 @@ export function buildQualitativeNotes(runs: readonly BenchRun[]): string[] {
   const notes: string[] = [];
   for (const r of runs) {
     if (r.failed) {
-      notes.push(`✗ case "${r.caseId}" run ${r.runIndex}: failed — ${r.errorMessage ?? "unknown error"}`);
+      notes.push(
+        `✗ case "${r.caseId}" run ${r.runIndex}: failed — ${r.errorMessage ?? "unknown error"}`,
+      );
       continue;
     }
     const tags: string[] = [];

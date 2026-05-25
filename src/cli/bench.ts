@@ -40,13 +40,32 @@ export interface BenchArgs {
   includeFullResults: boolean;
   listPanels: boolean;
   quiet: boolean;
+  /**
+   * Quick-sanity-check mode for power users. Forces a deterministic
+   * single-case, single-run, seed=0 invocation against the first
+   * built-in fixture matching the panel — minimum-cost confidence
+   * check that the panel is wired correctly end-to-end.
+   *
+   * Explicit `--runs`, `--seed`, `--cases`, and `--filter-tag` still
+   * win when both are passed (so a user can keep `--quick` for the
+   * "limit to one case" semantics and override the rest).
+   */
+  quick: boolean;
 }
+
+/**
+ * When `--quick` is on but the user didn't pin a seed, we use this
+ * fixed seed so two `bench --quick` invocations in a row produce the
+ * same shuffle/round order. Documented in the help text.
+ */
+const QUICK_DEFAULT_SEED = 0;
 
 const BENCH_HELP = `
 ${SERVER_NAME} bench — measure panel uplift over a single-model baseline
 
 Usage:
   ai-consensus-mcp bench --config <path> --panel <id> [--runs N]
+  ai-consensus-mcp bench --config <path> --panel <id> --quick
   ai-consensus-mcp bench --config <path> --panel <id> --cases ./my-cases.json
   ai-consensus-mcp bench --list-panels
 
@@ -59,7 +78,13 @@ Optional:
       --cases <path>           JSON case file. Defaults to the built-in
                                fixtures filtered to the panel's family.
   -n, --runs <N>               Runs per case. Default: 1, max: 32.
-      --seed <N>               Base random seed. Defaults to Date.now().
+      --seed <N>               Base random seed. Defaults to Date.now() (or 0
+                               under --quick).
+      --quick                  Quick mode: 1 case (the first built-in fixture
+                               that matches the panel), 1 run, seed=0. The
+                               cheapest end-to-end smoke check that the panel
+                               is wired correctly. Explicit --runs / --seed /
+                               --cases override the quick defaults.
       --baseline-model <id>    Model id for the single-model baseline.
                                Defaults to the judge model from config.
       --baseline-provider <id> Provider id for the baseline model.
@@ -75,6 +100,27 @@ Optional:
 Bench loads providers from your config and runs real LLM calls. Cost is
 proportional to (case_count × runs × (panel_size + 1)). Inspect the
 estimate the CLI prints before confirming.
+
+Determinism:
+  Round-ordering and per-run RNG are seeded from --seed (defaults to
+  Date.now()). Re-using the same seed reproduces the round/shuffle
+  decisions. Model outputs at temperature > 0 are inherently stochastic —
+  use --runs N to average over noise on real LLM calls.
+
+Examples:
+  # Smallest end-to-end check — one case, one run, deterministic seed
+  ai-consensus-mcp bench -c ./consensus.config.json -p architecture_v2 --quick
+
+  # Reproducible runs of the architecture panel with the built-in fixtures
+  ai-consensus-mcp bench --config ./consensus.config.json \\
+      --panel architecture_v2 --runs 3 --seed 42 --output report.json
+
+  # Restrict to one tag and write JSON + markdown
+  ai-consensus-mcp bench -c ./consensus.config.json -p security_redteam \\
+      --filter-tag injection --output sec.json
+
+  # Discover panels and their tags
+  ai-consensus-mcp bench --list-panels
 
 Environment:
   CONSENSUS_CONFIG             Default config path if --config is omitted.
@@ -96,6 +142,7 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs | Error {
     includeFullResults: false,
     listPanels: false,
     quiet: false,
+    quick: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -111,6 +158,8 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs | Error {
       out.listPanels = true;
     } else if (arg === "-q" || arg === "--quiet") {
       out.quiet = true;
+    } else if (arg === "--quick") {
+      out.quick = true;
     } else if (arg === "--include-full-results") {
       out.includeFullResults = true;
     } else if (arg === "-c" || arg === "--config") {
@@ -135,13 +184,15 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs | Error {
       const v = next();
       if (v instanceof Error) return v;
       const n = Number.parseInt(v, 10);
-      if (!Number.isFinite(n) || n < 1) return new Error(`--runs expects a positive integer (got "${v}").`);
+      if (!Number.isFinite(n) || n < 1)
+        return new Error(`--runs expects a positive integer (got "${v}").`);
       out.runs = n;
     } else if (arg === "--seed") {
       const v = next();
       if (v instanceof Error) return v;
       const n = Number.parseInt(v, 10);
-      if (!Number.isFinite(n) || n < 0) return new Error(`--seed expects a non-negative integer (got "${v}").`);
+      if (!Number.isFinite(n) || n < 0)
+        return new Error(`--seed expects a non-negative integer (got "${v}").`);
       out.baseSeed = n;
     } else if (arg === "--output") {
       const v = next();
@@ -222,9 +273,7 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     process.stderr.write(
       `${SERVER_NAME} bench: host-sample participants are not supported in CLI bench mode (${Object.keys(
         config.hostSampleParticipants,
-      ).join(
-        ", ",
-      )}). Reconfigure these participants as provider-backed to bench them.\n`,
+      ).join(", ")}). Reconfigure these participants as provider-backed to bench them.\n`,
     );
     return 2;
   }
@@ -319,6 +368,18 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     const wanted = parsed.filterTag;
     cases = cases.filter((c) => c.tags?.includes(wanted));
   }
+  // `--quick`: trim to the first matching case and pin runs/seed to deterministic
+  // defaults unless the user explicitly overrode them. The user can keep
+  // `--quick` for the "one case" semantics and still pass `--runs 5 --seed 42`
+  // to override the rest — those win over the defaults.
+  if (parsed.quick && cases.length > 1) {
+    cases = cases.slice(0, 1);
+    if (!parsed.quiet) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: --quick trimmed to first matching case "${cases[0]!.id}".\n`,
+      );
+    }
+  }
   if (cases.length === 0) {
     process.stderr.write(
       `${SERVER_NAME} bench: no cases matched (after filtering). Nothing to run.\n`,
@@ -326,12 +387,12 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-  const baseSeed = parsed.baseSeed ?? Date.now();
+  const baseSeed = parsed.baseSeed ?? (parsed.quick ? QUICK_DEFAULT_SEED : Date.now());
   const totalCalls = cases.length * parsed.runs * (resolved.participants.length + 1);
 
   if (!parsed.quiet) {
     process.stderr.write(
-      `${SERVER_NAME} bench: panel="${panel.id}", cases=${cases.length}, runs=${parsed.runs}, baseline=${baselineModelId} (${baselineProviderId}), seed=${baseSeed}\n`,
+      `${SERVER_NAME} bench: panel="${panel.id}", cases=${cases.length}, runs=${parsed.runs}, baseline=${baselineModelId} (${baselineProviderId}), seed=${baseSeed}${parsed.quick ? " (quick mode)" : ""}\n`,
     );
     process.stderr.write(
       `${SERVER_NAME} bench: expected ≈${totalCalls} provider calls (cases × runs × (panel + baseline)).\n`,
@@ -459,13 +520,25 @@ function pickB<K extends string>(
 
 function formatPanelList(): string {
   const registry = createRegistry(BUILT_IN_PRESETS);
-  const all = registry.list().slice().sort((a, b) => a.id.localeCompare(b.id));
+  const all = registry
+    .list()
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id));
   const lines: string[] = [];
   lines.push("Available panels:");
   for (const p of all) {
     const v = p.meta?.version ? ` v${p.meta.version}` : "";
     lines.push(`  • ${p.id}${v}  — ${p.title}`);
+    const tags = p.meta?.tags ?? [];
+    if (tags.length > 0) {
+      lines.push(`      tags: ${tags.join(", ")}`);
+    }
+  }
+  const allTags = registry.allTags();
+  if (allTags.length > 0) {
+    lines.push("");
+    lines.push(`Tag index: ${allTags.join(", ")}`);
+    lines.push("  (use --filter-tag <tag> to restrict built-in fixtures by tag.)");
   }
   return lines.join("\n");
 }
-

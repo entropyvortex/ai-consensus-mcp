@@ -136,12 +136,30 @@ export const PRODUCT_STRATEGY_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Market thesis", description: "Customer, job-to-be-done, why-now, with TAM/SAM/SOM where available." },
-        { heading: "Differentiation", description: "Top 3 differentiation claims with specific competitors or alternatives." },
-        { heading: "Moat analysis", description: "Moats with type, strength, compounding direction, and hardening action." },
-        { heading: "Sequencing plan", description: "90-day deliverables, 1-year milestones, 3-year inflection points." },
-        { heading: "Top risks + early signals", description: "Risks ordered by severity with probability and the early signal metric." },
-        { heading: "Bets we're consciously not making", description: "Rejected adjacent paths with the reason for rejection." },
+        {
+          heading: "Market thesis",
+          description: "Customer, job-to-be-done, why-now, with TAM/SAM/SOM where available.",
+        },
+        {
+          heading: "Differentiation",
+          description: "Top 3 differentiation claims with specific competitors or alternatives.",
+        },
+        {
+          heading: "Moat analysis",
+          description: "Moats with type, strength, compounding direction, and hardening action.",
+        },
+        {
+          heading: "Sequencing plan",
+          description: "90-day deliverables, 1-year milestones, 3-year inflection points.",
+        },
+        {
+          heading: "Top risks + early signals",
+          description: "Risks ordered by severity with probability and the early signal metric.",
+        },
+        {
+          heading: "Bets we're consciously not making",
+          description: "Rejected adjacent paths with the reason for rejection.",
+        },
       ],
       tags: ["high", "medium", "low"],
     },

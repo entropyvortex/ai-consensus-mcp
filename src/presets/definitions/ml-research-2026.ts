@@ -134,11 +134,26 @@ export const ML_RESEARCH_2026_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Claim taxonomy", description: "Claims with evidence tier, methodological strength, and practitioner gap." },
-        { heading: "Scaling implications", description: "Honest projection at 10×/100×/1000× with saturation signals." },
-        { heading: "Reproducibility risk", description: "Risk level with named drivers (data, eval, hyperparams)." },
-        { heading: "Next experiments to run", description: "Information-gain-ranked experiments with cost estimates." },
-        { heading: "Bottom line", description: "Build-on / watch / discount verdict with confidence." },
+        {
+          heading: "Claim taxonomy",
+          description: "Claims with evidence tier, methodological strength, and practitioner gap.",
+        },
+        {
+          heading: "Scaling implications",
+          description: "Honest projection at 10×/100×/1000× with saturation signals.",
+        },
+        {
+          heading: "Reproducibility risk",
+          description: "Risk level with named drivers (data, eval, hyperparams).",
+        },
+        {
+          heading: "Next experiments to run",
+          description: "Information-gain-ranked experiments with cost estimates.",
+        },
+        {
+          heading: "Bottom line",
+          description: "Build-on / watch / discount verdict with confidence.",
+        },
       ],
       tags: ["RIGOROUS", "CONTROLLED", "SUGGESTIVE", "ANECDOTAL", "HIGH", "MEDIUM", "LOW"],
     },

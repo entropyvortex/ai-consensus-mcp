@@ -108,12 +108,8 @@ function formatMetrics(m: BenchMetrics): string {
   lines.push(
     `- **Inter-rater reliability proxy:** ${m.interRaterReliabilityProxy.toFixed(2)} (1.00 = unanimous, 0.00 = max split)`,
   );
-  lines.push(
-    `- **Avg disagreements per run:** ${m.disagreementCountAvg.toFixed(2)}`,
-  );
-  lines.push(
-    `- **Duration ratio (consensus / baseline):** ${m.durationRatioAvg.toFixed(2)}×`,
-  );
+  lines.push(`- **Avg disagreements per run:** ${m.disagreementCountAvg.toFixed(2)}`);
+  lines.push(`- **Duration ratio (consensus / baseline):** ${m.durationRatioAvg.toFixed(2)}×`);
   if (m.tokenRatioAvg !== undefined) {
     lines.push(
       `- **Token ratio (consensus / baseline):** ${m.tokenRatioAvg.toFixed(2)}× — the cost multiplier of running a panel vs. one model`,
@@ -127,8 +123,12 @@ function formatMetrics(m: BenchMetrics): string {
 
 function formatPerCaseTable(runs: readonly BenchRun[]): string {
   const lines: string[] = [];
-  lines.push("| Case | Run | Score | σ | Rounds | Stop | Disagree | Judge conf | Baseline conf | Δ |");
-  lines.push("| ---- | --- | ----- | - | ------ | ---- | -------- | ---------- | ------------- | - |");
+  lines.push(
+    "| Case | Run | Score | σ | Rounds | Stop | Disagree | Judge conf | Baseline conf | Δ |",
+  );
+  lines.push(
+    "| ---- | --- | ----- | - | ------ | ---- | -------- | ---------- | ------------- | - |",
+  );
   for (const r of runs) {
     if (r.failed) {
       lines.push(
@@ -141,9 +141,7 @@ function formatPerCaseTable(runs: readonly BenchRun[]): string {
     lines.push(
       `| ${r.caseId} | ${r.runIndex} | ${c.finalScore} | ${c.finalStddev.toFixed(1)} | ${c.roundsCompleted} | ${shortStopReason(
         c.result.stopReason,
-      )} | ${c.disagreementCount} | ${
-        c.judgeConfidence !== undefined ? c.judgeConfidence : "—"
-      } | ${r.baseline.confidence} | ${delta >= 0 ? "+" : ""}${delta} |`,
+      )} | ${c.disagreementCount} | ${c.judgeConfidence ?? "—"} | ${r.baseline.confidence} | ${delta >= 0 ? "+" : ""}${delta} |`,
     );
   }
   return lines.join("\n");

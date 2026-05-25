@@ -92,7 +92,7 @@ const CONSENSUS_INPUT_JSON_SCHEMA = {
       type: "string",
       minLength: 1,
       description:
-        "Expert-panel id (e.g. \"architecture_v2\", \"security_redteam\"). When set, applies that panel's persona panel and tuned defaults — equivalent to calling the panel's dedicated tool. Mutually exclusive with `participantIds`.",
+        'Expert-panel id (e.g. "architecture_v2", "security_redteam"). When set, applies that panel\'s persona panel and tuned defaults — equivalent to calling the panel\'s dedicated tool. Mutually exclusive with `participantIds`.',
     },
     maxRounds: {
       type: "integer",
@@ -175,9 +175,7 @@ export function createMcpServer(config: LoadedConfig): Server {
         description: buildPresetToolDescription(preset, config),
         inputSchema: buildPresetJsonSchema(preset),
       })),
-      ...(memoryContext
-        ? buildMemoryToolDescriptors(memoryContext)
-        : []),
+      ...(memoryContext ? buildMemoryToolDescriptors(memoryContext) : []),
     ],
   }));
 
@@ -212,8 +210,8 @@ export function createMcpServer(config: LoadedConfig): Server {
       if (toolName === "consensus_recall") {
         return runRecall({ memoryContext, request });
       }
-      if (toolName === "consensus_project_summary") {
-        return runProjectSummary({ memoryContext, request });
+      if (toolName === "consensus_project_memory") {
+        return runProjectMemory({ memoryContext, request });
       }
       if (toolName === "consensus_what_we_decided") {
         return runWhatWeDecided({ memoryContext, request });
@@ -815,15 +813,13 @@ function resolveMemoryContext(config: LoadedConfig): MemoryContext | undefined {
 
   let cached: Promise<MemoryStore> | undefined;
   const getStore = (): Promise<MemoryStore> => {
-    if (!cached) {
-      cached = createMemoryStore({
-        storageRoot,
-        projectKey,
-        projectPath: canonical,
-        maxResults: config.memory.maxResults,
-        maxAgeDays: config.memory.maxAgeDays,
-      });
-    }
+    cached ??= createMemoryStore({
+      storageRoot,
+      projectKey,
+      projectPath: canonical,
+      maxResults: config.memory.maxResults,
+      maxAgeDays: config.memory.maxAgeDays,
+    });
     return cached;
   };
 
@@ -842,7 +838,8 @@ function buildMemoryToolDescriptors(ctx: MemoryContext): {
         "Recall stored consensus runs from this project.",
         "",
         `Project: ${ctx.projectPath} (key ${ctx.projectKey})`,
-        "Storage:", `  ${ctx.storageRoot}`,
+        "Storage:",
+        `  ${ctx.storageRoot}`,
         "",
         "Free-form `query` is matched as whole-token, case-insensitive against the",
         "stored question + tags. Filter by `panelId`, `tags`, or `sinceDays`.",
@@ -857,15 +854,15 @@ function buildMemoryToolDescriptors(ctx: MemoryContext): {
       inputSchema: RECALL_INPUT_JSON_SCHEMA,
     },
     {
-      name: "consensus_project_summary",
+      name: "consensus_project_memory",
       description: [
-        "Summarise every stored consensus run in this project.",
+        "List every stored consensus run in this project.",
         "",
-        "Returns a chronological list of past runs — panel, question, when,",
+        "Returns a chronological digest of past runs — panel, question, when,",
         "final score, judge confidence — without loading the full result bodies.",
         "Use this to get oriented before recalling a specific decision.",
       ].join("\n"),
-      inputSchema: PROJECT_SUMMARY_INPUT_JSON_SCHEMA,
+      inputSchema: PROJECT_MEMORY_INPUT_JSON_SCHEMA,
     },
     {
       name: "consensus_what_we_decided",
@@ -898,20 +895,31 @@ const RECALL_INPUT_JSON_SCHEMA = {
   properties: {
     query: { type: "string", description: "Free-form text. Tokens are whole-word matched." },
     panelId: { type: "string", minLength: 1, description: "Restrict to one panel id." },
-    anyTag: { type: "array", items: { type: "string", minLength: 1 }, description: "Match any of these tags." },
-    allTags: { type: "array", items: { type: "string", minLength: 1 }, description: "Match all of these tags." },
+    anyTag: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+      description: "Match any of these tags.",
+    },
+    allTags: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+      description: "Match all of these tags.",
+    },
     sinceDays: { type: "integer", minimum: 1, description: "Only entries stored within N days." },
     limit: { type: "integer", minimum: 1, maximum: 200, description: "Max results. Default 20." },
-    acrossProjects: { type: "boolean", description: "Recall across all projects, not just this one. Default false." },
+    acrossProjects: {
+      type: "boolean",
+      description: "Recall across all projects, not just this one. Default false.",
+    },
   },
 } as const;
 
-const PROJECT_SUMMARY_INPUT_SCHEMA = z.object({
+const PROJECT_MEMORY_INPUT_SCHEMA = z.object({
   panelId: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(500).optional(),
 });
 
-const PROJECT_SUMMARY_INPUT_JSON_SCHEMA = {
+const PROJECT_MEMORY_INPUT_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -931,7 +939,11 @@ const WHAT_WE_DECIDED_INPUT_JSON_SCHEMA = {
   additionalProperties: false,
   required: ["topic"],
   properties: {
-    topic: { type: "string", minLength: 1, description: "Topic to search for in stored decisions." },
+    topic: {
+      type: "string",
+      minLength: 1,
+      description: "Topic to search for in stored decisions.",
+    },
     sinceDays: { type: "integer", minimum: 1, description: "Only entries stored within N days." },
     limit: { type: "integer", minimum: 1, maximum: 50, description: "Max results. Default 10." },
   },
@@ -993,8 +1005,8 @@ async function runRecall(args: MemoryDispatchArgs) {
   };
 }
 
-async function runProjectSummary(args: MemoryDispatchArgs) {
-  const parsed = PROJECT_SUMMARY_INPUT_SCHEMA.safeParse(args.request.params.arguments ?? {});
+async function runProjectMemory(args: MemoryDispatchArgs) {
+  const parsed = PROJECT_MEMORY_INPUT_SCHEMA.safeParse(args.request.params.arguments ?? {});
   if (!parsed.success) return toolError(formatZodIssues(parsed.error));
   const store = await args.memoryContext.getStore();
   const limit = parsed.data.limit ?? 100;
@@ -1003,7 +1015,7 @@ async function runProjectSummary(args: MemoryDispatchArgs) {
     ...(parsed.data.panelId ? { panelId: parsed.data.panelId } : {}),
   });
   return {
-    content: [{ type: "text", text: formatProjectSummary(hits, args.memoryContext) }],
+    content: [{ type: "text", text: formatProjectMemory(hits, args.memoryContext) }],
     structuredContent: { hits } as unknown as Record<string, unknown>,
   };
 }
@@ -1036,7 +1048,9 @@ async function runWhatWeDecided(args: MemoryDispatchArgs) {
   const all = [...merged.values()].sort((a, b) => b.score - a.score || b.storedAt - a.storedAt);
   const top = all.slice(0, limit);
   return {
-    content: [{ type: "text", text: formatWhatWeDecided(top, parsed.data.topic, args.memoryContext) }],
+    content: [
+      { type: "text", text: formatWhatWeDecided(top, parsed.data.topic, args.memoryContext) },
+    ],
     structuredContent: { hits: top } as unknown as Record<string, unknown>,
   };
 }
@@ -1083,7 +1097,7 @@ function formatRecallHits(hits: readonly RecallHit[], ctx: MemoryContext): strin
   return lines.join("\n");
 }
 
-function formatProjectSummary(hits: readonly RecallHit[], ctx: MemoryContext): string {
+function formatProjectMemory(hits: readonly RecallHit[], ctx: MemoryContext): string {
   if (hits.length === 0) {
     return [
       "# Project memory is empty",
@@ -1130,14 +1144,20 @@ function formatWhatWeDecided(
   const lines: string[] = [];
   lines.push(`# Decisions matching "${topic}"`);
   lines.push("");
-  lines.push(`_Project: \`${ctx.projectPath}\` — ${hits.length} match${hits.length === 1 ? "" : "es"}_`);
+  lines.push(
+    `_Project: \`${ctx.projectPath}\` — ${hits.length} match${hits.length === 1 ? "" : "es"}_`,
+  );
   lines.push("");
   for (const h of hits) {
-    lines.push(`## ${h.panelId} — ${new Date(h.storedAt).toISOString().slice(0, 10)} (${ageLabel(h.ageDays)})`);
+    lines.push(
+      `## ${h.panelId} — ${new Date(h.storedAt).toISOString().slice(0, 10)} (${ageLabel(h.ageDays)})`,
+    );
     lines.push("");
     lines.push(`**Question:** ${h.question}`);
     lines.push("");
-    lines.push(`**Score:** ${h.finalScore >= 0 ? h.finalScore : "—"}  •  **Judge confidence:** ${h.judgeConfidence >= 0 ? h.judgeConfidence : "—"}`);
+    lines.push(
+      `**Score:** ${h.finalScore >= 0 ? h.finalScore : "—"}  •  **Judge confidence:** ${h.judgeConfidence >= 0 ? h.judgeConfidence : "—"}`,
+    );
     if (h.matchedFragments.length > 0) {
       lines.push(`**Matched on:** ${h.matchedFragments.map((f) => `\`${f}\``).join(" • ")}`);
     }

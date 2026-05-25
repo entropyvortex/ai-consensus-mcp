@@ -14,6 +14,17 @@ export interface PresetRegistry {
   list(): readonly Preset[];
   get(id: string): Preset | undefined;
   byToolName(toolName: string): Preset | undefined;
+  /**
+   * Presets whose `meta.tags` contains the given tag (case-sensitive). Order
+   * matches the registered slate's order. Returns `[]` when no panel carries
+   * the tag — including the case where no panels declare meta.tags at all.
+   */
+  listByTag(tag: string): readonly Preset[];
+  /**
+   * Union of every `meta.tags` across registered presets, sorted ascending.
+   * Useful for `--list-tags` style UIs and for documentation generators.
+   */
+  allTags(): readonly string[];
 }
 
 /**
@@ -29,6 +40,14 @@ export function createRegistry(presets: readonly Preset[]): PresetRegistry {
     list: () => presets,
     get: (id) => byId.get(id),
     byToolName: (name) => byToolName.get(name),
+    listByTag: (tag) => presets.filter((p) => p.meta?.tags?.includes(tag) ?? false),
+    allTags: () => {
+      const set = new Set<string>();
+      for (const p of presets) {
+        for (const t of p.meta?.tags ?? []) set.add(t);
+      }
+      return Array.from(set).sort((a, b) => a.localeCompare(b));
+    },
   };
 }
 
@@ -142,30 +161,26 @@ function validateMeta(p: Preset): void {
   const meta = p.meta;
   if (!meta) return;
 
-  if (meta.version !== undefined) {
-    if (typeof meta.version !== "string" || !SEMVER_PATTERN.test(meta.version)) {
-      throw new Error(
-        `preset "${p.id}" meta.version "${String(meta.version)}" must be semver (e.g. "2.0.0").`,
-      );
-    }
+  if (meta.version !== undefined && !SEMVER_PATTERN.test(meta.version)) {
+    throw new Error(
+      `preset "${p.id}" meta.version "${meta.version}" must be semver (e.g. "2.0.0").`,
+    );
   }
 
-  if (meta.rationale !== undefined) {
-    if (typeof meta.rationale !== "string" || meta.rationale.trim().length === 0) {
-      throw new Error(`preset "${p.id}" meta.rationale must be a non-empty string.`);
-    }
+  if (meta.rationale?.trim().length === 0) {
+    throw new Error(`preset "${p.id}" meta.rationale must be a non-empty string.`);
   }
 
   if (meta.expectedOutputShape !== undefined) {
-    const shape = meta.expectedOutputShape;
-    if (!Array.isArray(shape.sections) || shape.sections.length === 0) {
+    const sections = meta.expectedOutputShape.sections;
+    if (sections.length === 0) {
       throw new Error(
         `preset "${p.id}" meta.expectedOutputShape.sections must be a non-empty array.`,
       );
     }
     const seenHeadings = new Set<string>();
-    for (const s of shape.sections) {
-      if (!s.heading || typeof s.heading !== "string" || s.heading.trim().length === 0) {
+    for (const s of sections) {
+      if (s.heading.trim().length === 0) {
         throw new Error(
           `preset "${p.id}" meta.expectedOutputShape has a section with empty heading.`,
         );
@@ -176,18 +191,15 @@ function validateMeta(p: Preset): void {
         );
       }
       seenHeadings.add(s.heading);
-      if (!s.description || typeof s.description !== "string" || s.description.trim().length === 0) {
+      if (s.description.trim().length === 0) {
         throw new Error(
           `preset "${p.id}" meta.expectedOutputShape section "${s.heading}" has empty description.`,
         );
       }
     }
-    if (shape.tags !== undefined) {
-      if (!Array.isArray(shape.tags)) {
-        throw new Error(`preset "${p.id}" meta.expectedOutputShape.tags must be an array.`);
-      }
-      for (const t of shape.tags) {
-        if (typeof t !== "string" || t.trim().length === 0) {
+    if (meta.expectedOutputShape.tags !== undefined) {
+      for (const t of meta.expectedOutputShape.tags) {
+        if (t.trim().length === 0) {
           throw new Error(
             `preset "${p.id}" meta.expectedOutputShape.tags contains a non-string or empty tag.`,
           );
@@ -197,11 +209,8 @@ function validateMeta(p: Preset): void {
   }
 
   if (meta.tags !== undefined) {
-    if (!Array.isArray(meta.tags)) {
-      throw new Error(`preset "${p.id}" meta.tags must be an array.`);
-    }
     for (const t of meta.tags) {
-      if (typeof t !== "string" || t.trim().length === 0) {
+      if (t.trim().length === 0) {
         throw new Error(`preset "${p.id}" meta.tags contains a non-string or empty tag.`);
       }
     }

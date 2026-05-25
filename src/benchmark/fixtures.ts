@@ -48,9 +48,7 @@ export async function loadBuiltInFixtures(): Promise<LoadedFixture[]> {
       const detail = validated.error.errors
         .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
         .join("\n");
-      throw new Error(
-        `bench: built-in fixture ${path} failed validation:\n${detail}`,
-      );
+      throw new Error(`bench: built-in fixture ${path} failed validation:\n${detail}`);
     }
     out.push({ path, name, file: validated.data });
   }

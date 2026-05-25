@@ -89,9 +89,7 @@ function wholeTokenMatch(haystackLower: string, token: string): boolean {
 function extractFragment(preview: string, token: string): string {
   const lower = preview.toLowerCase();
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}([^\\p{L}\\p{N}_-]|$)`, "u").exec(
-    lower,
-  );
+  const m = new RegExp(`(^|[^\\p{L}\\p{N}_-])${escaped}([^\\p{L}\\p{N}_-]|$)`, "u").exec(lower);
   if (!m) return "";
   const idx = m.index;
   const start = Math.max(0, idx - FRAGMENT_PADDING);

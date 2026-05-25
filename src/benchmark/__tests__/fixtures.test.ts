@@ -4,11 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { BUILT_IN_PRESETS } from "../../presets/definitions/index.js";
-import {
-  allBuiltInCases,
-  builtInCasesForPanel,
-  loadBuiltInFixtures,
-} from "../fixtures.js";
+import { allBuiltInCases, builtInCasesForPanel, loadBuiltInFixtures } from "../fixtures.js";
 
 describe("built-in fixtures — load + validate", () => {
   it("ships at least one fixture file", async () => {

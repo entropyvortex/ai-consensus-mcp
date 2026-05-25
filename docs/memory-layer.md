@@ -11,7 +11,7 @@ tools let MCP hosts query that store:
 
 - `consensus_recall` — keyword + tag + recency filtering, returns
   matched fragments and the synthesis preview.
-- `consensus_project_summary` — chronological list of past runs
+- `consensus_project_memory` — chronological list of past runs
   in the current project, without loading full bodies.
 - `consensus_what_we_decided` — scoped to decision-support panels
   (`architecture_*`, `decision_*`, `product_strategy`); returns the
@@ -160,14 +160,14 @@ Limitations (deliberately, per premortem):
 Returns markdown listing each hit with its score, ageDays, matched
 fragments, and a synthesis preview. The full result body is not
 loaded into the response — call `get(id)` on the store directly
-(or use `consensus_project_summary` followed by a targeted lookup)
+(or use `consensus_project_memory` followed by a targeted lookup)
 when you need the raw debate.
 
-### `consensus_project_summary`
+### `consensus_project_memory`
 
 ```jsonc
 {
-  "name": "consensus_project_summary",
+  "name": "consensus_project_memory",
   "arguments": {
     "panelId": "code_review_v2",   // optional
     "limit": 100                    // default 100, max 500

@@ -48,9 +48,7 @@ describe("PanelMeta validation — happy paths", () => {
   });
 
   it("accepts a meta with only some fields set", () => {
-    expect(() =>
-      validatePresets([basePreset({ meta: { version: "2.0.0" } })]),
-    ).not.toThrow();
+    expect(() => validatePresets([basePreset({ meta: { version: "2.0.0" } })])).not.toThrow();
     expect(() =>
       validatePresets([basePreset({ meta: { rationale: "Why this exists." } })]),
     ).not.toThrow();

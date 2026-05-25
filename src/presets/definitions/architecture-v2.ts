@@ -130,11 +130,27 @@ export const ARCHITECTURE_V2_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Constraint surface", description: "Load-bearing constraints with units; assumed values tagged." },
-        { heading: "Decision matrix", description: "Table comparing options on trade-off, risk, reversibility, switching cost." },
-        { heading: "Recommendation", description: "Single recommended architecture with dominant reason and next-best alternative." },
-        { heading: "Tripwire conditions", description: "Specific measurable signals that would flip the recommendation." },
-        { heading: "Open questions", description: "Unresolved questions blocked on missing information." },
+        {
+          heading: "Constraint surface",
+          description: "Load-bearing constraints with units; assumed values tagged.",
+        },
+        {
+          heading: "Decision matrix",
+          description: "Table comparing options on trade-off, risk, reversibility, switching cost.",
+        },
+        {
+          heading: "Recommendation",
+          description:
+            "Single recommended architecture with dominant reason and next-best alternative.",
+        },
+        {
+          heading: "Tripwire conditions",
+          description: "Specific measurable signals that would flip the recommendation.",
+        },
+        {
+          heading: "Open questions",
+          description: "Unresolved questions blocked on missing information.",
+        },
       ],
       tags: ["reversibility:low", "reversibility:medium", "reversibility:high"],
     },

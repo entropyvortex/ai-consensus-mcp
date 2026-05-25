@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import type { ConsensusResult } from "ai-consensus-core";
 import { PERSONAS } from "../personas.js";
 import { createMcpServer } from "../server.js";
 import type { LoadedConfig } from "../config.js";
@@ -83,7 +84,7 @@ describe("memory tools — premortem F10 (off-by-default gating)", () => {
     const tools = await env.client.listTools();
     const names = tools.tools.map((t) => t.name);
     expect(names).not.toContain("consensus_recall");
-    expect(names).not.toContain("consensus_project_summary");
+    expect(names).not.toContain("consensus_project_memory");
     expect(names).not.toContain("consensus_what_we_decided");
     await env.close();
   });
@@ -93,7 +94,7 @@ describe("memory tools — premortem F10 (off-by-default gating)", () => {
     const tools = await env.client.listTools();
     const names = tools.tools.map((t) => t.name);
     expect(names).toContain("consensus_recall");
-    expect(names).toContain("consensus_project_summary");
+    expect(names).toContain("consensus_project_memory");
     expect(names).toContain("consensus_what_we_decided");
     await env.close();
   });
@@ -124,10 +125,10 @@ describe("memory tools — recall against an empty store", () => {
     await env.close();
   });
 
-  it("consensus_project_summary returns a non-error response with empty-project message", async () => {
+  it("consensus_project_memory returns a non-error response with empty-project message", async () => {
     const env = await connect(makeConfig(workdir, true));
     const result = await env.client.callTool({
-      name: "consensus_project_summary",
+      name: "consensus_project_memory",
       arguments: {},
     });
     expect(result.isError).toBeFalsy();
@@ -166,6 +167,184 @@ describe("memory tools — F7 freshness disclaimer surfaces in tool description"
     const tools = await env.client.listTools();
     const recall = tools.tools.find((t) => t.name === "consensus_recall");
     expect(recall?.description).toMatch(/historical context|freshness|stale/i);
+    await env.close();
+  });
+});
+
+// End-to-end contract: pre-populated entries must surface through every
+// memory tool, with project scoping enforced and matched fragments
+// preserved. Locks the integration between server.ts → store.ts → query.ts
+// so a regression in any layer breaks this single test.
+describe("memory tools — end-to-end recall against a pre-populated store", () => {
+  /**
+   * Pre-populate a project-scoped store by computing the same project key
+   * the server would derive (sha256-of-realpath, first 12 hex). We use the
+   * SAME projectPath the server resolves so projectKey lines up.
+   */
+  async function seed(memoryRoot: string, projectPath: string) {
+    const { createMemoryStore } = await import("../memory/store.js");
+    const { projectKeyForPath } = await import("../memory/project-key.js");
+    const projectKey = projectKeyForPath(projectPath);
+    const store = await createMemoryStore({
+      storageRoot: join(memoryRoot, projectKey),
+      projectKey,
+      projectPath,
+      maxResults: 100,
+      maxAgeDays: 365,
+    });
+    const synth = {
+      modelId: "judge",
+      content:
+        "Recommendation: start as a modular monolith. Tripwires that flip the call: write QPS sustains >5k for 24h.",
+      majorityPosition: "monolith",
+      minorityPositions: "microservices",
+      unresolvedDisputes: "",
+      judgeConfidence: 85,
+      startedAt: Date.now(),
+      completedAt: Date.now() + 100,
+      durationMs: 100,
+    };
+    const baseResult: ConsensusResult = {
+      question: "Should we adopt microservices on day one?",
+      participants: [],
+      rounds: [],
+      roundsCompleted: 3,
+      finalScore: 78,
+      finalAverageConfidence: 80,
+      finalStddev: 6,
+      stopReason: "converged",
+      startedAt: Date.now(),
+      completedAt: Date.now() + 1000,
+      durationMs: 1000,
+      synthesis: synth,
+    };
+    await store.store({
+      projectKey,
+      projectPath,
+      panelId: "architecture_v2",
+      question: "Should we adopt microservices on day one?",
+      result: baseResult,
+      tags: ["architecture", "v2.0.0"],
+    });
+    await store.store({
+      projectKey,
+      projectPath,
+      panelId: "decision_making_v2",
+      question: "Hire a staff engineer or two seniors?",
+      result: { ...baseResult, question: "Hire a staff engineer or two seniors?" },
+      tags: ["hiring", "decision-support"],
+    });
+    return { projectKey };
+  }
+
+  it("consensus_recall returns the seeded architecture run with matched fragments", async () => {
+    const projectPath = "/tmp/fake-project-recall";
+    const env = await connect(makeConfig(workdir, true));
+    await seed(workdir, projectPath);
+    // Reconfigure to use the same projectPath the seed used.
+    await env.close();
+    const cfg = makeConfig(workdir, true);
+    cfg.memory.raw = { enabled: true, storagePath: workdir, projectPath };
+    const env2 = await connect(cfg);
+    const result = await env2.client.callTool({
+      name: "consensus_recall",
+      arguments: { query: "microservices" },
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
+    expect(text).toMatch(/architecture_v2/);
+    expect(text).toMatch(/microservices/i);
+    expect(text).toMatch(/Matched:/);
+    await env2.close();
+  });
+
+  it("consensus_project_memory lists every seeded run", async () => {
+    const projectPath = "/tmp/fake-project-summary";
+    await seed(workdir, projectPath);
+    const cfg = makeConfig(workdir, true);
+    cfg.memory.raw = { enabled: true, storagePath: workdir, projectPath };
+    const env = await connect(cfg);
+    const result = await env.client.callTool({
+      name: "consensus_project_memory",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
+    expect(text).toMatch(/architecture_v2/);
+    expect(text).toMatch(/decision_making_v2/);
+    expect(text).toMatch(/microservices/i);
+    expect(text).toMatch(/staff engineer/i);
+    await env.close();
+  });
+
+  it("consensus_what_we_decided finds the architecture decision but skips non-decision panels", async () => {
+    const projectPath = "/tmp/fake-project-decided";
+    const { createMemoryStore } = await import("../memory/store.js");
+    const { projectKeyForPath } = await import("../memory/project-key.js");
+    const projectKey = projectKeyForPath(projectPath);
+    const store = await createMemoryStore({
+      storageRoot: join(workdir, projectKey),
+      projectKey,
+      projectPath,
+      maxResults: 100,
+      maxAgeDays: 365,
+    });
+    const baseResult: ConsensusResult = {
+      question: "Should we adopt microservices on day one?",
+      participants: [],
+      rounds: [],
+      roundsCompleted: 3,
+      finalScore: 78,
+      finalAverageConfidence: 80,
+      finalStddev: 6,
+      stopReason: "converged",
+      startedAt: Date.now(),
+      completedAt: Date.now() + 1000,
+      durationMs: 1000,
+      synthesis: {
+        modelId: "j",
+        content: "Monolith first.",
+        majorityPosition: "monolith",
+        minorityPositions: "",
+        unresolvedDisputes: "",
+        judgeConfidence: 85,
+        startedAt: Date.now(),
+        completedAt: Date.now() + 10,
+        durationMs: 10,
+      },
+    };
+    // Decision-related panel (matches DECISION_PANEL_IDS).
+    await store.store({
+      projectKey,
+      projectPath,
+      panelId: "architecture_v2",
+      question: "Should we adopt microservices on day one?",
+      result: baseResult,
+      tags: ["architecture"],
+    });
+    // Non-decision panel — same query terms, but what_we_decided should NOT include it.
+    await store.store({
+      projectKey,
+      projectPath,
+      panelId: "code_review_v2",
+      question: "Review microservices boilerplate diff.",
+      result: { ...baseResult, question: "Review microservices boilerplate diff." },
+      tags: ["code-review"],
+    });
+
+    const cfg = makeConfig(workdir, true);
+    cfg.memory.raw = { enabled: true, storagePath: workdir, projectPath };
+    const env = await connect(cfg);
+    const result = await env.client.callTool({
+      name: "consensus_what_we_decided",
+      arguments: { topic: "microservices" },
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
+    expect(text).toMatch(/architecture_v2/);
+    // Decision-archaeology must NOT bubble up code-review results — that's the
+    // contract that makes the tool useful in the first place.
+    expect(text).not.toMatch(/code_review_v2/);
     await env.close();
   });
 });

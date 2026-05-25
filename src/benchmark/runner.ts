@@ -103,9 +103,7 @@ export async function runSuite(args: RunSuiteArgs): Promise<BenchReport> {
     throw new Error("bench: cases is empty.");
   }
   if (participants.length < 2) {
-    throw new Error(
-      `bench: at least 2 participants are required (got ${participants.length}).`,
-    );
+    throw new Error(`bench: at least 2 participants are required (got ${participants.length}).`);
   }
   const runs = Math.max(MIN_RUNS, Math.min(MAX_RUNS, Math.trunc(requestedRuns)));
   const totalRuns = cases.length * runs;
@@ -281,8 +279,8 @@ async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
   const errorMessage = consensusError
     ? `consensus: ${consensusError}`
     : baseline.errorMessage
-    ? `baseline: ${baseline.errorMessage}`
-    : undefined;
+      ? `baseline: ${baseline.errorMessage}`
+      : undefined;
 
   return {
     caseId: benchCase.id,
@@ -373,7 +371,7 @@ function placeholderConsensus(): ConsensusOutcome {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    const reason = signal.reason;
+    const reason: unknown = signal.reason;
     if (reason instanceof Error) throw reason;
     throw new DOMException("Aborted", "AbortError");
   }

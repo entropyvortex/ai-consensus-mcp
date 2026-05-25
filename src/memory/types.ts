@@ -7,7 +7,6 @@
 // shapes are designed against (F5 in particular).
 
 import { z } from "zod";
-import type { ConsensusResult } from "ai-consensus-core";
 
 /** Bump when the on-disk shape changes incompatibly. */
 export const CURRENT_SCHEMA_VERSION = 1;

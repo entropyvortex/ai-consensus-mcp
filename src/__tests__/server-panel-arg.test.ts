@@ -28,7 +28,13 @@ function makeNarrowConfig(): LoadedConfig {
     ],
     providerByParticipant: { p_pessimist: "test", p_vc: "test" },
     hostSampleParticipants: {},
-    memory: { enabled: false, storageRoot: "/tmp/test-memory", maxResults: 1000, maxAgeDays: 365, raw: undefined },
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -58,7 +64,13 @@ function makeFullConfig(): LoadedConfig {
     participants,
     providerByParticipant: Object.fromEntries(participants.map((p) => [p.id, "test"])),
     hostSampleParticipants: {},
-    memory: { enabled: false, storageRoot: "/tmp/test-memory", maxResults: 1000, maxAgeDays: 365, raw: undefined },
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -129,7 +141,7 @@ describe("generic consensus tool — `panel` validation", () => {
       },
     });
     expect(result.isError).toBe(true);
-    const text = ((result.content as { type: string; text?: string }[])[0]?.text ?? "");
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
     expect(text).toMatch(/mutually exclusive/i);
     await env.close();
   });
@@ -141,7 +153,7 @@ describe("generic consensus tool — `panel` validation", () => {
       arguments: { prompt: "Q?", panel: "totally_not_a_panel" },
     });
     expect(result.isError).toBe(true);
-    const text = ((result.content as { type: string; text?: string }[])[0]?.text ?? "");
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
     expect(text).toMatch(/unknown panel id/i);
     expect(text).toContain("architecture_v2");
     await env.close();
@@ -156,7 +168,7 @@ describe("generic consensus tool — `panel` validation", () => {
       arguments: { prompt: "Q?", panel: "architecture_v2" },
     });
     expect(result.isError).toBe(true);
-    const text = ((result.content as { type: string; text?: string }[])[0]?.text ?? "");
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
     expect(text).toMatch(/missing required personas/i);
     expect(text).toContain("first-principles");
     await env.close();

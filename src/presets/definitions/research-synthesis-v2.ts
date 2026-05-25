@@ -122,10 +122,24 @@ export const RESEARCH_SYNTHESIS_V2_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Claims and confidence", description: "Claims with evidence type, source, confidence ladder, and counter-evidence." },
-        { heading: "Independence map", description: "Claims grouped by shared load-bearing assumption." },
-        { heading: "Open questions, ranked by leverage", description: "Open questions ordered by how many downstream conclusions they would shift." },
-        { heading: "Where to dig next", description: "Specific papers, experiments, or datasets to pursue." },
+        {
+          heading: "Claims and confidence",
+          description:
+            "Claims with evidence type, source, confidence ladder, and counter-evidence.",
+        },
+        {
+          heading: "Independence map",
+          description: "Claims grouped by shared load-bearing assumption.",
+        },
+        {
+          heading: "Open questions, ranked by leverage",
+          description:
+            "Open questions ordered by how many downstream conclusions they would shift.",
+        },
+        {
+          heading: "Where to dig next",
+          description: "Specific papers, experiments, or datasets to pursue.",
+        },
       ],
       tags: ["HIGH", "MEDIUM", "LOW", "panel-inference"],
     },

@@ -122,9 +122,19 @@ export const CODE_REVIEW_V2_PRESET: Preset = {
     ].join(" "),
     expectedOutputShape: {
       sections: [
-        { heading: "Findings", description: "Severity-tagged findings with location, root cause, trigger, and concrete fix." },
-        { heading: "Agreed", description: "Issues every reviewer flagged independently or after debate." },
-        { heading: "Disagreements", description: "Issues where reviewers split, with each side's reasoning." },
+        {
+          heading: "Findings",
+          description:
+            "Severity-tagged findings with location, root cause, trigger, and concrete fix.",
+        },
+        {
+          heading: "Agreed",
+          description: "Issues every reviewer flagged independently or after debate.",
+        },
+        {
+          heading: "Disagreements",
+          description: "Issues where reviewers split, with each side's reasoning.",
+        },
         { heading: "Refactor opportunities", description: "Out-of-scope work worth tracking." },
       ],
       tags: ["BLOCKER", "MAJOR", "MINOR", "NIT"],

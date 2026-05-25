@@ -67,7 +67,7 @@ of recall results to the storing identity.
 **Mitigation [gating]:**
 
 1. **Memory is off by default.** Opt-in via explicit config flag
-   `memory.enabled: true` *and* a per-call `consensus_store: true`
+   `memory.enabled: true` _and_ a per-call `consensus_store: true`
    flag on the consensus tool. No silent retention.
 2. **Project-scope by default.** Recall is filtered to the current
    project (resolved from `cwd`). Cross-project recall is a separate,
@@ -197,7 +197,7 @@ that the recalled material is historical context, not current truth.
 
 1. **Recall returns metadata, not raw context.** The MCP tool
    surfaces a structured list — `{ id, storedAt, panelId, question,
-   summary, finalScore }` — and the *caller* (the model in the
+summary, finalScore }` — and the _caller_ (the model in the
    MCP host) decides whether to use it. Recall does not inject
    into prompts automatically.
 2. **Every recalled item is tagged with age.** "Stored 76 days ago,"
@@ -293,7 +293,7 @@ Before any code lands in Phase 2.1:
 - [x] This premortem document exists and was reviewed against the
       charter (R10 satisfied).
 - [ ] Storage envelope shape locked: `{ schemaVersion, id, storedAt,
-      projectKey, projectPath, panelId, question, tags, result }`.
+projectKey, projectPath, panelId, question, tags, result }`.
 - [ ] CLI command added for inspection (`ai-consensus-mcp memory list`
       / `memory show <id>` / `memory wipe` — _admin-only_, never an MCP tool).
 - [ ] `memory.enabled: false` is the default in the config schema.
