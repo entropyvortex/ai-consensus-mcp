@@ -31,6 +31,7 @@ function makeFullConfig(): LoadedConfig {
     participants,
     providerByParticipant,
     hostSampleParticipants: {},
+    memory: { enabled: false, storageRoot: "/tmp/test-memory", maxResults: 1000, maxAgeDays: 365, raw: undefined },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -51,15 +52,49 @@ describe("BUILT_IN_PRESETS — structural invariants", () => {
     expect(() => createRegistry(BUILT_IN_PRESETS)).not.toThrow();
   });
 
-  it("ships exactly the five v1 presets the plan promised", () => {
-    const ids = BUILT_IN_PRESETS.map((p) => p.id).sort();
-    expect(ids).toEqual([
-      "architecture_debate",
-      "code_review",
-      "debug_postmortem",
-      "decision_making",
-      "research_synthesis",
+  it("ships the five v1 presets (kept for backward compatibility)", () => {
+    const ids = new Set(BUILT_IN_PRESETS.map((p) => p.id));
+    // v1 — original five
+    expect(ids.has("architecture_debate")).toBe(true);
+    expect(ids.has("code_review")).toBe(true);
+    expect(ids.has("debug_postmortem")).toBe(true);
+    expect(ids.has("decision_making")).toBe(true);
+    expect(ids.has("research_synthesis")).toBe(true);
+  });
+
+  it("ships the eight v2 expert panels promised by v0.12", () => {
+    const ids = new Set(BUILT_IN_PRESETS.map((p) => p.id));
+    // v2 — upgrades of the four v1 presets that warranted iteration
+    expect(ids.has("architecture_v2")).toBe(true);
+    expect(ids.has("code_review_v2")).toBe(true);
+    expect(ids.has("research_synthesis_v2")).toBe(true);
+    expect(ids.has("decision_making_v2")).toBe(true);
+    expect(ids.has("incident_postmortem_v2")).toBe(true);
+    // v2 — three brand-new panels
+    expect(ids.has("security_redteam")).toBe(true);
+    expect(ids.has("ml_research_2026")).toBe(true);
+    expect(ids.has("product_strategy")).toBe(true);
+  });
+
+  it("every v2 panel declares full meta (version, rationale, expectedOutputShape)", () => {
+    const v2Ids = new Set([
+      "architecture_v2",
+      "code_review_v2",
+      "research_synthesis_v2",
+      "decision_making_v2",
+      "incident_postmortem_v2",
+      "security_redteam",
+      "ml_research_2026",
+      "product_strategy",
     ]);
+    for (const preset of BUILT_IN_PRESETS) {
+      if (!v2Ids.has(preset.id)) continue;
+      expect(preset.meta, `preset ${preset.id} meta`).toBeDefined();
+      expect(preset.meta?.version, `${preset.id} version`).toMatch(/^\d+\.\d+\.\d+/);
+      expect(preset.meta?.rationale, `${preset.id} rationale`).toBeTruthy();
+      expect(preset.meta?.expectedOutputShape?.sections.length, `${preset.id} sections`).toBeGreaterThan(0);
+      expect(preset.meta?.tags?.length, `${preset.id} tags`).toBeGreaterThan(0);
+    }
   });
 
   it("each preset is runnable when the user has configured every persona", () => {

@@ -1,12 +1,28 @@
 # ai-consensus-mcp
 
 > A stdio [Model Context Protocol](https://modelcontextprotocol.io) server that turns any MCP host into a multi-model roundtable.
-> Generic `consensus` tool plus task-tuned presets — code review, architecture debate, research synthesis, decision support, incident postmortem — each invokable as one command.
+> Generic `consensus` tool plus 13 task-tuned expert panels — code review, architecture, security red-team, ML research, decision support, incident postmortem, product strategy, and more — each invokable as one command.
 
 [![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
 [![license](https://img.shields.io/npm/l/ai-consensus-mcp)](./LICENSE)
 
-Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One config file, six tools, zero drama.
+Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One config file, 14 tools, zero drama.
+
+## What's new in v0.12
+
+- **8 v2 expert panels** with versioned metadata, structured rationale, and
+  machine-readable `expectedOutputShape`. New: `security_redteam`,
+  `ml_research_2026`, `product_strategy`. Upgrades: `architecture_v2`,
+  `code_review_v2`, `research_synthesis_v2`, `decision_making_v2`,
+  `incident_postmortem_v2`. See [`docs/expert-panels.md`](./docs/expert-panels.md).
+- **`bench` CLI subcommand** — `npx ai-consensus-mcp bench --panel <id>`
+  measures panel uplift vs. a single-model baseline with agreement-rate,
+  convergence-speed, judge-confidence distribution, and duration/token
+  cost ratios. Deterministic with `--seed`.
+- **`panel` argument on the generic `consensus` tool** — apply any expert
+  panel by id from the generic tool, for hosts that don't enumerate
+  per-panel tools.
+- All v1 presets continue to work unchanged.
 
 ## Install in 30 seconds
 
@@ -28,7 +44,15 @@ Scope the run with `--hosts claude-code,cursor`. Run `npx ai-consensus-mcp insta
 
 ## What it gives you
 
-- **Six MCP tools, one config.** The generic `consensus` tool plus five task-tuned presets (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`). Invoke a preset; get a curated panel and tuned defaults without touching the knobs.
+- **14 MCP tools, one config.** The generic `consensus` tool (with optional
+  `panel` argument), plus 5 v1 presets and 8 v2 expert panels. Invoke a
+  panel; get a curated set of personas and tuned defaults without touching
+  the knobs. Full catalogue in [`docs/expert-panels.md`](./docs/expert-panels.md).
+- **Benchmarking baked in.** `npx ai-consensus-mcp bench --panel <id>`
+  runs a panel against built-in or user-provided cases and produces a
+  human-readable + JSON uplift report — agreement rate, convergence
+  speed, judge confidence, duration/token cost ratios. Deterministic
+  with `--seed`.
 - **Any OpenAI-compatible provider.** xAI Grok, Anthropic (via OpenAI-compat endpoint), OpenAI, Groq, Together, Fireworks, or your private gateway. One adapter, configurable per participant.
 - **The calling agent can also play (experimental).** A participant can be `kind: "host-sample"`, in which case the MCP host answers via [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) — its own model takes a seat at the roundtable, no extra API key. **Today this only works in Claude Desktop**; Claude Code, Cursor, and Windsurf don't advertise the `sampling` capability yet (tracking: [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)). See [the host-sample section](#participants-can-be-the-calling-host).
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.

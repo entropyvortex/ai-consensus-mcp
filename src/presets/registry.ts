@@ -80,6 +80,7 @@ function mergeDefaults(base: PresetDefaults, patch: PresetDefaults | undefined):
 // ── Validation ───────────────────────────────────────────────
 
 const ID_PATTERN = /^[a-z][a-z0-9_]*$/;
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 export function validatePresets(presets: readonly Preset[]): void {
   const ids = new Set<string>();
@@ -125,7 +126,84 @@ export function validatePresets(presets: readonly Preset[]): void {
       seenPanelIds.add(entry.personaId);
     }
 
+    validateMeta(p);
+
     ids.add(p.id);
     toolNames.add(p.toolName);
+  }
+}
+
+/**
+ * Validate `meta` if present. Absent meta is fine (v1 presets). When present,
+ * every field that's set must satisfy structural constraints so MCP clients
+ * relying on `meta` for introspection get well-formed data.
+ */
+function validateMeta(p: Preset): void {
+  const meta = p.meta;
+  if (!meta) return;
+
+  if (meta.version !== undefined) {
+    if (typeof meta.version !== "string" || !SEMVER_PATTERN.test(meta.version)) {
+      throw new Error(
+        `preset "${p.id}" meta.version "${String(meta.version)}" must be semver (e.g. "2.0.0").`,
+      );
+    }
+  }
+
+  if (meta.rationale !== undefined) {
+    if (typeof meta.rationale !== "string" || meta.rationale.trim().length === 0) {
+      throw new Error(`preset "${p.id}" meta.rationale must be a non-empty string.`);
+    }
+  }
+
+  if (meta.expectedOutputShape !== undefined) {
+    const shape = meta.expectedOutputShape;
+    if (!Array.isArray(shape.sections) || shape.sections.length === 0) {
+      throw new Error(
+        `preset "${p.id}" meta.expectedOutputShape.sections must be a non-empty array.`,
+      );
+    }
+    const seenHeadings = new Set<string>();
+    for (const s of shape.sections) {
+      if (!s.heading || typeof s.heading !== "string" || s.heading.trim().length === 0) {
+        throw new Error(
+          `preset "${p.id}" meta.expectedOutputShape has a section with empty heading.`,
+        );
+      }
+      if (seenHeadings.has(s.heading)) {
+        throw new Error(
+          `preset "${p.id}" meta.expectedOutputShape has duplicate section heading "${s.heading}".`,
+        );
+      }
+      seenHeadings.add(s.heading);
+      if (!s.description || typeof s.description !== "string" || s.description.trim().length === 0) {
+        throw new Error(
+          `preset "${p.id}" meta.expectedOutputShape section "${s.heading}" has empty description.`,
+        );
+      }
+    }
+    if (shape.tags !== undefined) {
+      if (!Array.isArray(shape.tags)) {
+        throw new Error(`preset "${p.id}" meta.expectedOutputShape.tags must be an array.`);
+      }
+      for (const t of shape.tags) {
+        if (typeof t !== "string" || t.trim().length === 0) {
+          throw new Error(
+            `preset "${p.id}" meta.expectedOutputShape.tags contains a non-string or empty tag.`,
+          );
+        }
+      }
+    }
+  }
+
+  if (meta.tags !== undefined) {
+    if (!Array.isArray(meta.tags)) {
+      throw new Error(`preset "${p.id}" meta.tags must be an array.`);
+    }
+    for (const t of meta.tags) {
+      if (typeof t !== "string" || t.trim().length === 0) {
+        throw new Error(`preset "${p.id}" meta.tags contains a non-string or empty tag.`);
+      }
+    }
   }
 }

@@ -8,6 +8,7 @@
 //   install            register the server with installed MCP hosts
 //                      (Claude Code, Cursor, Windsurf)
 //   config / configure interactive TUI for editing the JSON config
+//   bench              measure panel uplift vs. single-model baseline
 //
 // Top-level flags:
 //   --help / -h        per-subcommand help (or top-level help when no
@@ -22,6 +23,7 @@
 import { runServe } from "./serve.js";
 import { runInstall } from "./install.js";
 import { runConfig } from "./config.js";
+import { runBench } from "./bench.js";
 import { SERVER_NAME, SERVER_VERSION } from "../version.js";
 
 const TOP_LEVEL_HELP = `
@@ -31,15 +33,17 @@ Usage:
   ai-consensus-mcp [serve] --config <path>     Start the MCP server (stdio)
   ai-consensus-mcp install [options]           Register with installed MCP hosts
   ai-consensus-mcp config [--config <path>]    Interactive editor for the JSON config
+  ai-consensus-mcp bench [options]             Measure panel uplift over a baseline
   ai-consensus-mcp --help                      Show this help
   ai-consensus-mcp --version                   Print version and exit
 
 Run \`ai-consensus-mcp <command> --help\` for command-specific options.
 
 Environment:
-  CONSENSUS_CONFIG       Default config path for \`serve\` if --config is omitted.
+  CONSENSUS_CONFIG       Default config path for \`serve\` and \`bench\` if --config
+                         is omitted.
   <PROVIDER_API_KEY>     Each provider in the config declares an \`apiKeyEnv\`;
-                         that env var must be set when serving.
+                         that env var must be set when serving or benching.
 `;
 
 export async function runMain(argv: readonly string[]): Promise<number> {
@@ -71,6 +75,10 @@ export async function runMain(argv: readonly string[]): Promise<number> {
 
   if (first === "config" || first === "configure") {
     return runConfig(argv.slice(1));
+  }
+
+  if (first === "bench") {
+    return runBench(argv.slice(1));
   }
 
   // Backward-compatible default: anything that starts with a flag

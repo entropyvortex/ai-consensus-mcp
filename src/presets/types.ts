@@ -1,14 +1,20 @@
 // ─────────────────────────────────────────────────────────────
-// Preset type definitions
+// Preset / expert-panel type definitions
 // ─────────────────────────────────────────────────────────────
-// A preset is a curated, opinionated bundle that turns one MCP tool
-// call into a tuned consensus run for a specific use case (code review,
-// architecture debate, etc.). Each preset declares:
+// A preset (a.k.a. "expert panel" in v2+ docs) is a curated, opinionated
+// bundle that turns one MCP tool call into a tuned consensus run for a
+// specific use case (code review, architecture debate, security red team,
+// etc.). Each definition declares:
 //   • Which personas should be at the table.
 //   • Per-task system-prompt overrides for those personas.
 //   • Engine knobs (rounds, temperature, convergence) tuned for the task.
 //   • Optional judge-prompt override.
 //   • Optional extra tool-input fields and a custom result formatter.
+//   • Optional structured metadata (`meta`) declaring version, rationale,
+//     expected judge-output shape, and indexing tags — required for v2+
+//     panels so MCP clients and benchmark runners can introspect what a
+//     panel is for and what its synthesis will look like without parsing
+//     the description prose.
 
 import type { z } from "zod";
 import type { ConsensusResult } from "ai-consensus-core";
@@ -81,7 +87,68 @@ export interface PresetCallInput {
 export type PresetResultFormatter = (result: ConsensusResult, input: PresetCallInput) => string;
 
 /**
- * A complete preset definition. Pure data — no runtime side-effects.
+ * One section the judge synthesis is expected to emit. Used by clients to
+ * preview / parse the output without re-running regex over the prose. The
+ * `heading` must match the `## Heading` line in the produced markdown.
+ */
+export interface PanelOutputSection {
+  /** Markdown heading text (without the `##` prefix). */
+  heading: string;
+  /** One-line description of what content goes in this section. */
+  description: string;
+}
+
+/**
+ * Structured shape of the judge synthesis. Mirrors what's encoded in
+ * `judgeSystemPrompt`, but in machine-readable form.
+ */
+export interface PanelOutputShape {
+  /** Ordered list of sections the judge produces. */
+  sections: readonly PanelOutputSection[];
+  /**
+   * Optional list of structured tags surfaced inside sections (e.g.
+   * `BLOCKER`, `MAJOR`, `MINOR`, `NIT` for code review; `HIGH`, `MEDIUM`,
+   * `LOW` for risk severity). Used by bench reports and downstream parsers.
+   */
+  tags?: readonly string[];
+}
+
+/**
+ * Optional metadata declaring a panel's purpose and output shape. v2+
+ * panels populate this fully so MCP clients can introspect what a panel
+ * is for and what its judge synthesis will look like, without parsing
+ * the prose description.
+ *
+ * Distinct from `Preset.description`: `description` is the user-facing
+ * "what it does"; `meta.rationale` is the contributor-facing "why it
+ * exists and what tradeoffs were tuned."
+ */
+export interface PanelMeta {
+  /**
+   * Semver string. v2 panels declare "2.0.0"; absent means v1 (legacy).
+   * Panels sharing the same conceptual purpose but different versions may
+   * coexist (`architecture_debate` v1 and `architecture_v2` v2).
+   */
+  version?: string;
+  /**
+   * One-paragraph design notes: why this panel exists, what tradeoffs were
+   * tuned, what differentiates it from adjacent panels. Read by contributors
+   * adding new panels, not by end users.
+   */
+  rationale?: string;
+  /** Structured shape of the judge synthesis this panel produces. */
+  expectedOutputShape?: PanelOutputShape;
+  /**
+   * Free-form indexing tags. Used by docs, by the bench CLI's `--filter`,
+   * and by future memory/recall tools. Examples: "security", "ml",
+   * "high-stakes", "v2".
+   */
+  tags?: readonly string[];
+}
+
+/**
+ * A complete preset / expert-panel definition. Pure data — no runtime
+ * side-effects.
  */
 export interface Preset {
   /** Stable id (snake_case); also forms the tool name suffix. */
@@ -108,6 +175,11 @@ export interface Preset {
   extraInputs?: z.ZodRawShape;
   /** Optional custom markdown summary renderer. */
   formatResult?: PresetResultFormatter;
+  /**
+   * Optional structured metadata. v2+ panels populate this fully; v1 presets
+   * may leave it absent (their `description` carries the equivalent prose).
+   */
+  meta?: PanelMeta;
 }
 
 /**

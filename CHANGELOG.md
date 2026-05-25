@@ -5,6 +5,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — v2 expert panels, bench CLI, `panel` arg on generic tool
+
+Phase 1 of the v0.12 roadmap: turn the project into a definitive open-
+source primitive for production-grade multi-model consensus reasoning.
+
+- **8 v2 expert panels** (`src/presets/definitions/*-v2.ts` and three
+  new panels). Each panel ships a structured `meta` block —
+  `version`, `rationale`, `expectedOutputShape` (sections + tags), and
+  free-form `tags` — so MCP clients can introspect what a panel is
+  for and what its judge synthesis will look like without parsing prose.
+  - Upgrades: `architecture_v2`, `code_review_v2`, `research_synthesis_v2`,
+    `decision_making_v2`, `incident_postmortem_v2`.
+  - New: `security_redteam`, `ml_research_2026`, `product_strategy`.
+  - Validator in `registry.ts` rejects ill-formed `meta` at server
+    startup. Contracts covered in `presets/__tests__/registry-meta.test.ts`.
+- **`bench` CLI subcommand** (`src/cli/bench.ts` + `src/benchmark/*`).
+  Measures panel uplift over a single-model baseline. Built-in JSON
+  fixtures shipped per panel family (`src/benchmark/fixtures/*.json`).
+  Metrics: agreement rate, convergence speed, judge confidence
+  distribution, inter-rater reliability proxy, disagreement count,
+  duration ratio, token ratio. Deterministic with `--seed`.
+  Markdown + JSON output. Tested via mock-caller suite that exercises
+  every metric formula and the full runner orchestration.
+- **`panel` argument on the generic `consensus` tool.** When set, applies
+  the named panel's persona panel and tuned defaults to the run —
+  equivalent to calling the panel's dedicated tool, but accessible via
+  the generic interface for hosts that don't enumerate per-panel tools.
+  Mutually exclusive with `participantIds`.
+- **`docs/expert-panels.md`** — catalogue, per-panel reference with
+  expected output shapes, three ways to invoke a panel, contribution
+  guide, versioning policy.
+- All v1 presets continue to work unchanged.
+
+Test footprint: +93 tests (262 total, up from 169). All Phase 1 additions
+covered by R6-grade contract tests — each test names the specific
+invariant it locks down.
+
+
+
 ### Added — `CODE_OF_CONDUCT.md` and `.github/` issue / PR templates
 
 Closes the documentation gap flagged in the prior consensus code review.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://entropyvortex.dev/consensus-bench-cases-v1.json",
+  "version": "1.0.0",
+  "name": "Security red-team benchmarks",
+  "cases": [
+    {
+      "id": "sec-webhook-replay",
+      "question": "Our SaaS receives webhooks from a payment processor. Today we verify an HMAC-SHA256 signature using a shared secret and accept any timestamp. The webhook handler updates user balances. Threat-model this endpoint — what are the highest-severity attack paths and how should we harden it?",
+      "panelId": "security_redteam",
+      "tags": ["security", "auth", "webhook"],
+      "expectedTopics": ["replay attack", "timestamp window", "constant-time comparison", "secret rotation"]
+    },
+    {
+      "id": "sec-pdf-upload-render",
+      "question": "Users upload PDFs to our app, and we render thumbnails server-side using a headless Chromium pool. The renderer runs as a non-root user in a Docker container with no network egress. Where are the attack paths an adversary could chain end-to-end? Be specific about preconditions.",
+      "panelId": "security_redteam",
+      "tags": ["security", "sandbox", "rendering"],
+      "expectedTopics": ["chromium CVEs", "container escape", "SSRF via local services", "resource exhaustion"]
+    },
+    {
+      "id": "sec-jwt-shared-secret",
+      "question": "We issue JWTs signed with HS256 using a single application-wide secret. Tokens contain user_id and role claims and have a 24-hour expiry. Refresh tokens are stored in an HttpOnly cookie. What's the strongest attack against this design and what are the top three mitigations?",
+      "panelId": "security_redteam",
+      "tags": ["security", "auth", "tokens"],
+      "expectedTopics": ["secret exfiltration", "key rotation", "algorithm confusion", "revocation"]
+    }
+  ]
+}

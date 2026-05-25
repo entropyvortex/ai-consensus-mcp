@@ -1,0 +1,33 @@
+{
+  "$schema": "https://entropyvortex.dev/consensus-bench-cases-v1.json",
+  "version": "1.0.0",
+  "name": "Code review benchmarks",
+  "cases": [
+    {
+      "id": "cr-cache-stampede",
+      "question": "Review this Python function for production-grade defects. It runs in a Django web app under gunicorn with 16 workers:\n\n```python\ndef get_user_profile(user_id):\n    cached = cache.get(f'profile:{user_id}')\n    if cached is None:\n        profile = db.fetch_profile(user_id)\n        cache.set(f'profile:{user_id}', profile, timeout=300)\n        return profile\n    return cached\n```\n\nFocus on: correctness, race conditions, performance under load, observability, and what could fail in a real outage.",
+      "panelId": "code_review_v2",
+      "tags": ["code-review", "python", "caching"],
+      "expectedTopics": ["cache stampede", "negative cache", "serialization safety", "TTL jitter"]
+    },
+    {
+      "id": "cr-bcrypt-vs-argon2",
+      "question": "We have new user-registration code that hashes passwords with bcrypt at cost factor 10. It's called synchronously from the registration endpoint. Review this for security, performance, and forward-compatibility. Is bcrypt-cost-10 the right call in 2026, or should we be using argon2id?",
+      "panelId": "code_review_v2",
+      "tags": ["code-review", "security", "passwords"],
+      "expectedTopics": [
+        "GPU-cracking economics",
+        "argon2id parameters",
+        "auth latency budget",
+        "hash-migration strategy"
+      ]
+    },
+    {
+      "id": "cr-retry-storm",
+      "question": "Review the following HTTP-client wrapper for a service-to-service call:\n\n```ts\nasync function callBilling(req: Req) {\n  for (let attempt = 0; attempt < 5; attempt++) {\n    try { return await fetch(BILLING_URL, { body: JSON.stringify(req) }); }\n    catch (e) { await sleep(1000); }\n  }\n  throw new Error('billing unreachable');\n}\n```\n\nWhat's wrong with this under load? Be specific about the failure mechanism, the conditions that surface it, and the fix.",
+      "panelId": "code_review_v2",
+      "tags": ["code-review", "reliability", "http"],
+      "expectedTopics": ["retry storm", "exponential backoff", "jitter", "circuit breaker", "idempotency"]
+    }
+  ]
+}
