@@ -52,6 +52,7 @@ function makeMinimalReport(overrides: Partial<BenchReport> = {}): BenchReport {
       judgeConfidence: 80,
       durationMs: 100,
       totalUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      rubric: undefined,
     },
     baseline: {
       modelId: "judge-model",
@@ -60,6 +61,7 @@ function makeMinimalReport(overrides: Partial<BenchReport> = {}): BenchReport {
       durationMs: 50,
       usage: { inputTokens: 30, outputTokens: 20, totalTokens: 50 },
       errorMessage: undefined,
+      rubric: undefined,
     },
     failed: false,
   };
@@ -87,6 +89,10 @@ function makeMinimalReport(overrides: Partial<BenchReport> = {}): BenchReport {
       consensusBeatsBaselineConfidenceRate: 1,
       runsCounted: 1,
       runsAttempted: 1,
+      consensusRubricNormalizedMean: undefined,
+      baselineRubricNormalizedMean: undefined,
+      consensusBeatsBaselineRubricRate: undefined,
+      rubricRunsCounted: 0,
     },
     qualitativeNotes: ["• c1#0: converged at round 1; judge confidence 80"],
     ...overrides,
@@ -116,6 +122,97 @@ describe("formatReportMarkdown — section contract", () => {
   it("includes the panel version when set", () => {
     const md = formatReportMarkdown(makeMinimalReport());
     expect(md).toContain("v2.0.0");
+  });
+
+  it("renders the held-out rubric block and rubric columns when rubrics are present", () => {
+    const report = makeMinimalReport();
+    const run = report.runs[0]!;
+    const withRubric: BenchRun = {
+      ...run,
+      consensus: {
+        ...run.consensus,
+        rubric: {
+          evaluatorModelId: "claude-opus-4-5",
+          criteria: [{ criterionId: "x", score: 4, justification: "j" }],
+          total: 4,
+          maxTotal: 5,
+          normalized: 80,
+          durationMs: 50,
+          usage: undefined,
+          errorMessage: undefined,
+        },
+      },
+      baseline: {
+        ...run.baseline,
+        rubric: {
+          evaluatorModelId: "claude-opus-4-5",
+          criteria: [{ criterionId: "x", score: 2, justification: "j" }],
+          total: 2,
+          maxTotal: 5,
+          normalized: 40,
+          durationMs: 50,
+          usage: undefined,
+          errorMessage: undefined,
+        },
+      },
+    };
+    const md = formatReportMarkdown({
+      ...report,
+      runs: [withRubric],
+      metrics: {
+        ...report.metrics,
+        consensusRubricNormalizedMean: 80,
+        baselineRubricNormalizedMean: 40,
+        consensusBeatsBaselineRubricRate: 1,
+        rubricRunsCounted: 1,
+      },
+    });
+    expect(md).toContain("Held-out rubric");
+    expect(md).toContain("Mean rubric score");
+    expect(md).toContain("Consensus beats baseline on rubric");
+    // Table gains the Rubric C / Rubric B / Δ rubric columns.
+    expect(md).toContain("Rubric C");
+    expect(md).toContain("Rubric B");
+    expect(md).toContain("Δ rubric");
+    expect(md).toMatch(/\| 80 \| 40 \| \+40 \|/);
+  });
+
+  it("renders ERR in rubric cells when an eval failed, without crashing the per-case table", () => {
+    const report = makeMinimalReport();
+    const run = report.runs[0]!;
+    const withErroredRubric: BenchRun = {
+      ...run,
+      consensus: {
+        ...run.consensus,
+        rubric: {
+          evaluatorModelId: "claude-opus-4-5",
+          criteria: [],
+          total: 0,
+          maxTotal: 5,
+          normalized: 0,
+          durationMs: 10,
+          usage: undefined,
+          errorMessage: "evaluator did not emit a parseable JSON object",
+        },
+      },
+      baseline: {
+        ...run.baseline,
+        rubric: {
+          evaluatorModelId: "claude-opus-4-5",
+          criteria: [],
+          total: 0,
+          maxTotal: 5,
+          normalized: 0,
+          durationMs: 10,
+          usage: undefined,
+          errorMessage: "caller threw",
+        },
+      },
+    };
+    const md = formatReportMarkdown({ ...report, runs: [withErroredRubric] });
+    expect(md).toContain("ERR");
+    // Δ rubric is "—" when either side errored.
+    expect(md).toMatch(/\| ERR \| ERR \| — \|/);
   });
 
   it("renders per-case table with score, sigma, rounds, stop, judge conf, baseline conf, delta", () => {

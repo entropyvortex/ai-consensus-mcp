@@ -18,3 +18,8 @@ yarn-error.log*
 .idea
 progress.md
 package-lock.json
+
+# Bench run artifacts — local outputs from `ai-consensus-mcp bench --output`
+# and the progress logs that pair with them. Reproducible from the config.
+bench-*.json
+bench-*.log

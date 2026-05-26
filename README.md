@@ -66,11 +66,18 @@ Scope the run with `--hosts claude-code,cursor`. Run `npx ai-consensus-mcp insta
   `panel` argument), plus 5 v1 presets and 8 v2 expert panels. Invoke a
   panel; get a curated set of personas and tuned defaults without touching
   the knobs. Full catalogue in [`docs/expert-panels.md`](./docs/expert-panels.md).
-- **Benchmarking baked in.** `npx ai-consensus-mcp bench --panel <id>`
-  runs a panel against built-in or user-provided cases and produces a
-  human-readable + JSON uplift report — agreement rate, convergence
-  speed, judge confidence, duration/token cost ratios. Deterministic
-  with `--seed`.
+- **Benchmarking baked in, with held-out quality eval.**
+  `npx ai-consensus-mcp bench --panel <id>` runs a panel against built-in
+  or user-provided cases and produces a human-readable + JSON uplift
+  report — agreement rate, convergence speed, judge confidence,
+  duration/token cost ratios. Deterministic with `--seed`. Pass
+  `--evaluator-model` + `--evaluator-provider` and the bench scores both
+  the consensus synthesis and the baseline against the panel's declared
+  rubric using a third, held-out model — measuring answer quality
+  against named criteria, not self-reported confidence. See
+  [Quality benchmark](#quality-benchmark-held-out-evaluator) below for
+  the methodology and the headline result (consensus wins 12/12 runs
+  on `architecture_v2` against a frontier baseline).
 - **Persistent project memory (opt-in).** Enable with one config flag;
   every panel run is durably stored, project-scoped, with three recall
   tools — `consensus_recall`, `consensus_project_memory`,
@@ -82,6 +89,96 @@ Scope the run with `--hosts claude-code,cursor`. Run `npx ai-consensus-mcp insta
 - **The calling agent can also play (experimental).** A participant can be `kind: "host-sample"`, in which case the MCP host answers via [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) — its own model takes a seat at the roundtable, no extra API key. **Today this only works in Claude Desktop**; Claude Code, Cursor, and Windsurf don't advertise the `sampling` capability yet (tracking: [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)). See [the host-sample section](#participants-can-be-the-calling-host).
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.
 - **Dependency-light.** `@modelcontextprotocol/sdk`, `zod`, `ai-consensus-core`. SSE parsing is native `fetch` — no provider SDKs.
+
+## Quality benchmark (held-out evaluator)
+
+`bench` ships with a held-out LLM-as-judge rubric evaluator. Pass
+`--evaluator-model` + `--evaluator-provider` and the bench scores both
+the consensus synthesis and the single-model baseline against the
+panel's declared rubric, using a third model that's neither side. The
+rubric measures **answer quality** against named criteria — distinct
+from self-reported confidence, which is a meta-signal that does not
+track quality.
+
+### Headline finding (`architecture_v2`, 4 cases × 3 runs, seed=42)
+
+| Metric                                                  | Consensus | Baseline |         Δ |
+| ------------------------------------------------------- | --------: | -------: | --------: |
+| Self-reported (consensus score vs. baseline confidence) |      60.0 |     75.4 |     −15.4 |
+| Held-out rubric (judged by `claude-opus-4-5`, blind)    |  **83.3** | **48.0** | **+35.3** |
+
+**Consensus wins on the held-out rubric in 12 of 12 runs (100%).** On
+the same 12 runs, the self-reported confidence metric says consensus
+wins 1 of 12 (8%) — the two metrics invert. Without the rubric, the
+bench reports "consensus loses 11/12, costs 40× tokens for nothing."
+With it: "consensus dominates 12/12, +35-point quality lead,
+structural advantage on every case."
+
+### Per-case Δ rubric
+
+| Case                          | Runs (Δ rubric) |    Mean |
+| ----------------------------- | --------------- | ------: |
+| `arch-microservices-day-one`  | +36, +28, +32   | **+32** |
+| `arch-event-sourcing-billing` | +44, +52, +56   | **+51** |
+| `arch-sync-vs-async-fanout`   | +24, +40, +40   | **+35** |
+| `arch-db-multi-tenant`        | +12, +32, +28   | **+24** |
+
+Baseline scored 28/100 on every `event-sourcing-billing` run — a
+reproducible single-model blind spot (hand-wavy tripwires, missing
+reversibility weighing) that the panel surfaces every time.
+
+### Methodology
+
+- **Judge model:** `grok-4.3` (xai). Synthesises the consensus output
+  from the panel's final-round responses.
+- **Baseline model:** `grok-4.3` (xai). Same brain, single-shot answer,
+  no panel, no judge — this is what the panel is compared against.
+- **Evaluator model:** `claude-opus-4-5` (anthropic). **Held out** —
+  does not appear on either side of the comparison. Scores each answer
+  independently against the rubric, blind to which side produced it.
+- **Rubric:** 5 criteria for `architecture_v2`, each scored 0–5:
+  quantification, single-recommendation, reversibility-weighing,
+  tripwire-specificity, failure-mode-realism. Declared on the preset
+  (see [`src/presets/definitions/architecture-v2.ts`](./src/presets/definitions/architecture-v2.ts)).
+- **Determinism:** `--seed 42` controls round-order shuffling. Model
+  outputs at temperature > 0 are inherently stochastic — 3 runs per
+  case averages out the noise.
+
+### Reproducing
+
+```bash
+export GROK_API_KEY=...
+export CONSENSUS_ANTHROPIC_API_KEY=...
+ai-consensus-mcp bench -p architecture_v2 --runs 3 --seed 42 \
+  --evaluator-model claude-opus-4-5 --evaluator-provider anthropic \
+  --output bench-architecture_v2-rubric.json
+```
+
+Cost preview: ~72 provider calls (4 cases × 3 runs × (panel + baseline
+
+- 2 rubric evals)). The CLI prints the exact estimate before spending.
+
+### Honest caveats
+
+- **N=12 is small.** The direction is unambiguous (100% inversion is
+  hard to fluke); the magnitude needs broader sampling.
+- **One panel.** Only `architecture_v2` declares a rubric in this
+  version — the same pattern applies to every other panel by adding a
+  `rubric` array to the preset definition.
+- **Cost is real.** 40× tokens, 20× wall time vs. one baseline call.
+  For high-stakes architecture decisions (the panel's named use case),
+  the cost is dwarfed by the cost of a wrong call. For low-stakes
+  routine choices, single-model is the right tool — panel-selection
+  guidance, not a panel failure.
+- **Self-reported confidence remains a poor quality estimator.** Even
+  with the upstream parser-contract fix (`ai-consensus-core@0.11.1`),
+  judge confidence on these 12 runs is μ=66.9, σ=5.2 — under-estimates
+  the actual held-out rubric score (μ=83.3) by ~16 points. Useful as a
+  humility signal, not as a quality estimator.
+
+The CLI warns when the evaluator model coincides with the baseline or
+the judge — the held-out contract is the bench's only guarantee that
+the comparison isn't self-graded.
 
 ## The protocol
 

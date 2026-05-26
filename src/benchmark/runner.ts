@@ -20,6 +20,7 @@ import {
 import type { Preset } from "../presets/types.js";
 import { runBaseline } from "./baseline.js";
 import { computeMetrics, buildQualitativeNotes } from "./metrics.js";
+import { evaluateOutput, type RubricEvaluation } from "./rubric.js";
 import {
   deriveRandomSeed,
   type BenchCase,
@@ -73,6 +74,12 @@ export interface RunSuiteArgs {
   signal?: AbortSignal;
   /** Optional name for the case-file or suite — appears in the report header. */
   caseFileName?: string;
+  /**
+   * Optional held-out evaluator model id for rubric scoring. When provided
+   * AND the panel declares a `rubric`, the runner scores both consensus
+   * and baseline outputs against that rubric.
+   */
+  evaluatorModelId?: string;
 }
 
 const MAX_RUNS = 32;
@@ -97,6 +104,7 @@ export async function runSuite(args: RunSuiteArgs): Promise<BenchReport> {
     onProgress,
     signal,
     caseFileName,
+    evaluatorModelId,
   } = args;
 
   if (cases.length === 0) {
@@ -148,6 +156,7 @@ export async function runSuite(args: RunSuiteArgs): Promise<BenchReport> {
         caseIndex,
         totalCases: cases.length,
         totalRuns,
+        evaluatorModelId,
       });
       collected.push(run);
     }
@@ -205,6 +214,7 @@ interface ExecuteOneRunArgs {
   caseIndex: number;
   totalCases: number;
   totalRuns: number;
+  evaluatorModelId: string | undefined;
 }
 
 async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
@@ -222,6 +232,7 @@ async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
     caseIndex,
     totalCases,
     totalRuns,
+    evaluatorModelId,
   } = args;
 
   let consensus: ConsensusOutcome | undefined;
@@ -257,7 +268,7 @@ async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
   });
 
   // 2) Baseline run (always — even if consensus errored, baseline data is useful).
-  const baseline = await runBaseline({
+  let baseline = await runBaseline({
     caller,
     modelId: baselineModelId,
     question: benchCase.question,
@@ -274,6 +285,57 @@ async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
       baseline.errorMessage ? ` (ERRORED: ${baseline.errorMessage})` : ""
     }`,
   });
+
+  // 3) Optional rubric eval. Only runs when the panel declares a rubric AND
+  // the bench was invoked with a held-out evaluator model. Failures here are
+  // captured into the per-side `RubricEvaluation.errorMessage` rather than
+  // bubbling — a rubric failure is data quality, not a suite-fatal error.
+  const rubric = panel.rubric;
+  if (rubric && rubric.length > 0 && evaluatorModelId) {
+    const consensusOutputText = consensus?.result.synthesis?.content;
+    if (consensusOutputText && consensusOutputText.trim().length > 0) {
+      const consensusRubric = await evaluateOutput({
+        caller,
+        evaluatorModelId,
+        rubric,
+        question: benchCase.question,
+        output: consensusOutputText,
+        ...(signal ? { signal } : {}),
+      });
+      if (consensus) {
+        consensus = { ...consensus, rubric: consensusRubric };
+      }
+      onProgress?.({
+        kind: "consensus-complete",
+        caseIndex,
+        runIndex,
+        caseId: benchCase.id,
+        totalCases,
+        totalRuns,
+        message: `  consensus rubric ${runIndex + 1}: ${formatRubricProgress(consensusRubric)}`,
+      });
+    }
+    if (!baseline.errorMessage && baseline.content.trim().length > 0) {
+      const baselineRubric = await evaluateOutput({
+        caller,
+        evaluatorModelId,
+        rubric,
+        question: benchCase.question,
+        output: baseline.content,
+        ...(signal ? { signal } : {}),
+      });
+      baseline = { ...baseline, rubric: baselineRubric };
+      onProgress?.({
+        kind: "baseline-complete",
+        caseIndex,
+        runIndex,
+        caseId: benchCase.id,
+        totalCases,
+        totalRuns,
+        message: `  baseline rubric ${runIndex + 1}: ${formatRubricProgress(baselineRubric)}`,
+      });
+    }
+  }
 
   const failed = consensus === undefined || baseline.errorMessage !== undefined;
   const errorMessage = consensusError
@@ -292,6 +354,11 @@ async function executeOneRun(args: ExecuteOneRunArgs): Promise<BenchRun> {
     failed,
     ...(errorMessage ? { errorMessage } : {}),
   };
+}
+
+function formatRubricProgress(r: RubricEvaluation): string {
+  if (r.errorMessage) return `ERRORED (${r.errorMessage})`;
+  return `score=${r.normalized}/100 (${r.total}/${r.maxTotal})`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -333,6 +400,7 @@ function summariseConsensus(result: ConsensusResult, durationMs: number): Consen
     judgeConfidence: result.synthesis?.judgeConfidence,
     durationMs,
     totalUsage,
+    rubric: undefined,
   };
 }
 
@@ -366,6 +434,7 @@ function placeholderConsensus(): ConsensusOutcome {
     judgeConfidence: undefined,
     durationMs: 0,
     totalUsage: undefined,
+    rubric: undefined,
   };
 }
 

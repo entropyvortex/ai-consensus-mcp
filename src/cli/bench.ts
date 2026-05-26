@@ -36,6 +36,8 @@ export interface BenchArgs {
   outputPath: string | undefined;
   baselineModelId: string | undefined;
   baselineProviderId: string | undefined;
+  evaluatorModelId: string | undefined;
+  evaluatorProviderId: string | undefined;
   filterTag: string | undefined;
   includeFullResults: boolean;
   listPanels: boolean;
@@ -89,6 +91,17 @@ Optional:
                                Defaults to the judge model from config.
       --baseline-provider <id> Provider id for the baseline model.
                                Defaults to the judge provider from config.
+      --evaluator-model <id>   Model id for a held-out rubric evaluator. When
+                               set AND the panel declares a rubric, the bench
+                               scores both consensus and baseline outputs
+                               against that rubric. SHOULD differ from both
+                               the judge model and the baseline model — the
+                               evaluator grades both sides blind, and using
+                               the same brain for grading and producing one
+                               side biases the result. The CLI warns when
+                               this contract is violated but does not block.
+      --evaluator-provider <id> Provider id for the evaluator model. Required
+                               when --evaluator-model is set.
       --filter-tag <tag>       Only run cases that have this tag.
       --output <path>          Also write the JSON report to this path.
       --include-full-results   Keep the full ConsensusResult objects in the
@@ -119,6 +132,11 @@ Examples:
   ai-consensus-mcp bench -c ./consensus.config.json -p security_redteam \\
       --filter-tag injection --output sec.json
 
+  # Held-out rubric eval — consensus + baseline scored by a third model
+  ai-consensus-mcp bench -p architecture_v2 --runs 3 --seed 42 \\
+      --evaluator-model claude-opus-4-5 --evaluator-provider anthropic \\
+      --output bench-rubric.json
+
   # Discover panels and their tags
   ai-consensus-mcp bench --list-panels
 
@@ -138,6 +156,8 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs | Error {
     outputPath: undefined,
     baselineModelId: undefined,
     baselineProviderId: undefined,
+    evaluatorModelId: undefined,
+    evaluatorProviderId: undefined,
     filterTag: undefined,
     includeFullResults: false,
     listPanels: false,
@@ -208,6 +228,14 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs | Error {
       const v = next();
       if (v instanceof Error) return v;
       out.baselineProviderId = v;
+    } else if (arg === "--evaluator-model") {
+      const v = next();
+      if (v instanceof Error) return v;
+      out.evaluatorModelId = v;
+    } else if (arg === "--evaluator-provider") {
+      const v = next();
+      if (v instanceof Error) return v;
+      out.evaluatorProviderId = v;
     } else if (arg === "--filter-tag") {
       const v = next();
       if (v instanceof Error) return v;
@@ -314,8 +342,39 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
+  // Evaluator routing — required if --evaluator-model is set. Validated
+  // BEFORE we start running so we fail fast on a typo'd provider id rather
+  // than dozens of provider calls in.
+  let evaluatorModelId: string | undefined;
+  let evaluatorProviderId: string | undefined;
+  if (parsed.evaluatorModelId || parsed.evaluatorProviderId) {
+    if (!parsed.evaluatorModelId || !parsed.evaluatorProviderId) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: --evaluator-model and --evaluator-provider must be passed together.\n`,
+      );
+      return 2;
+    }
+    if (!config.providers[parsed.evaluatorProviderId]) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: evaluator provider "${parsed.evaluatorProviderId}" is not in your config (available: ${Object.keys(
+          config.providers,
+        ).join(", ")}).\n`,
+      );
+      return 2;
+    }
+    evaluatorModelId = parsed.evaluatorModelId;
+    evaluatorProviderId = parsed.evaluatorProviderId;
+    if (!panel.rubric || panel.rubric.length === 0) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: panel "${panel.id}" declares no rubric; --evaluator-model has nothing to score. Ignoring.\n`,
+      );
+      evaluatorModelId = undefined;
+      evaluatorProviderId = undefined;
+    }
+  }
+
   // Compose the per-call routing: panel participants → their providers,
-  // plus the synthetic "baseline" and "judge" ids → judge provider.
+  // plus the synthetic "baseline", "judge", and "rubric-evaluator" ids.
   const providerByParticipant: Record<string, string> = {
     ...resolved.providerByParticipant,
     baseline: baselineProviderId,
@@ -323,10 +382,36 @@ export async function runBench(argv: readonly string[]): Promise<number> {
   if (config.judge) {
     providerByParticipant["judge"] = config.judge.providerId;
   }
+  if (evaluatorProviderId) {
+    providerByParticipant["rubric-evaluator"] = evaluatorProviderId;
+  }
   const caller: ModelCaller = createOpenAICompatibleCaller({
     providers: config.providers,
     providerByParticipant,
   });
+
+  // Held-out contract warnings — the bench will still run, but a reviewer
+  // reading the report needs to see "this comparison wasn't blind."
+  if (evaluatorModelId) {
+    if (evaluatorModelId === baselineModelId) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: ⚠ evaluator model == baseline model (${evaluatorModelId}). The evaluator is grading its own output. Results on the baseline side are NOT independent.\n`,
+      );
+    }
+    if (evaluatorModelId === config.judge?.modelId) {
+      process.stderr.write(
+        `${SERVER_NAME} bench: ⚠ evaluator model == judge model (${evaluatorModelId}). The evaluator is grading text synthesised by the same brain that produced the consensus output — eval is not held-out.\n`,
+      );
+    }
+  }
+  if (
+    baselineModelId === config.judge?.modelId &&
+    (!evaluatorModelId || evaluatorModelId === baselineModelId)
+  ) {
+    process.stderr.write(
+      `${SERVER_NAME} bench: ⚠ baseline and judge are the same model (${baselineModelId}). Consensus and baseline both flow through this brain; "consensus vs baseline" is a self-comparison artifact.\n`,
+    );
+  }
 
   // Load cases.
   let cases: BenchCase[];
@@ -388,14 +473,22 @@ export async function runBench(argv: readonly string[]): Promise<number> {
   }
 
   const baseSeed = parsed.baseSeed ?? (parsed.quick ? QUICK_DEFAULT_SEED : Date.now());
-  const totalCalls = cases.length * parsed.runs * (resolved.participants.length + 1);
+  const perRunRubricCalls = evaluatorModelId ? 2 : 0;
+  const totalCalls =
+    cases.length * parsed.runs * (resolved.participants.length + 1 + perRunRubricCalls);
 
   if (!parsed.quiet) {
+    const evalSuffix = evaluatorModelId
+      ? `, evaluator=${evaluatorModelId} (${evaluatorProviderId})`
+      : "";
     process.stderr.write(
-      `${SERVER_NAME} bench: panel="${panel.id}", cases=${cases.length}, runs=${parsed.runs}, baseline=${baselineModelId} (${baselineProviderId}), seed=${baseSeed}${parsed.quick ? " (quick mode)" : ""}\n`,
+      `${SERVER_NAME} bench: panel="${panel.id}", cases=${cases.length}, runs=${parsed.runs}, baseline=${baselineModelId} (${baselineProviderId})${evalSuffix}, seed=${baseSeed}${parsed.quick ? " (quick mode)" : ""}\n`,
     );
+    const explainer = evaluatorModelId
+      ? "cases × runs × (panel + baseline + 2 rubric evals)"
+      : "cases × runs × (panel + baseline)";
     process.stderr.write(
-      `${SERVER_NAME} bench: expected ≈${totalCalls} provider calls (cases × runs × (panel + baseline)).\n`,
+      `${SERVER_NAME} bench: expected ≈${totalCalls} provider calls (${explainer}).\n`,
     );
   }
 
@@ -427,6 +520,7 @@ export async function runBench(argv: readonly string[]): Promise<number> {
       ...(progressHandler ? { onProgress: progressHandler } : {}),
       signal: ac.signal,
       ...(caseFileName ? { caseFileName } : {}),
+      ...(evaluatorModelId ? { evaluatorModelId } : {}),
     });
 
     const md = formatReportMarkdown(report);

@@ -118,31 +118,87 @@ function formatMetrics(m: BenchMetrics): string {
   lines.push(
     `- **Consensus score > baseline confidence:** ${pct(m.consensusBeatsBaselineConfidenceRate)} of runs`,
   );
+  if (
+    m.consensusRubricNormalizedMean !== undefined ||
+    m.baselineRubricNormalizedMean !== undefined ||
+    m.consensusBeatsBaselineRubricRate !== undefined
+  ) {
+    lines.push("");
+    lines.push("**Held-out rubric** (independent quality eval — not self-reported confidence):");
+    if (
+      m.consensusRubricNormalizedMean !== undefined &&
+      m.baselineRubricNormalizedMean !== undefined
+    ) {
+      const delta = m.consensusRubricNormalizedMean - m.baselineRubricNormalizedMean;
+      lines.push(
+        `- **Mean rubric score:** consensus ${m.consensusRubricNormalizedMean.toFixed(1)}/100, baseline ${m.baselineRubricNormalizedMean.toFixed(1)}/100 (Δ ${delta >= 0 ? "+" : ""}${delta.toFixed(1)})`,
+      );
+    } else {
+      if (m.consensusRubricNormalizedMean !== undefined) {
+        lines.push(
+          `- **Consensus mean rubric score:** ${m.consensusRubricNormalizedMean.toFixed(1)}/100`,
+        );
+      }
+      if (m.baselineRubricNormalizedMean !== undefined) {
+        lines.push(
+          `- **Baseline mean rubric score:** ${m.baselineRubricNormalizedMean.toFixed(1)}/100`,
+        );
+      }
+    }
+    if (m.consensusBeatsBaselineRubricRate !== undefined) {
+      lines.push(
+        `- **Consensus beats baseline on rubric:** ${pct(m.consensusBeatsBaselineRubricRate)} of paired runs (${m.rubricRunsCounted} pairs)`,
+      );
+    }
+  }
   return lines.join("\n");
 }
 
 function formatPerCaseTable(runs: readonly BenchRun[]): string {
   const lines: string[] = [];
-  lines.push(
-    "| Case | Run | Score | σ | Rounds | Stop | Disagree | Judge conf | Baseline conf | Δ |",
+  const anyRubric = runs.some(
+    (r) => r.consensus.rubric !== undefined || r.baseline.rubric !== undefined,
   );
-  lines.push(
-    "| ---- | --- | ----- | - | ------ | ---- | -------- | ---------- | ------------- | - |",
-  );
+  if (anyRubric) {
+    lines.push(
+      "| Case | Run | Score | σ | Rounds | Stop | Disagree | Judge conf | Baseline conf | Δ conf | Rubric C | Rubric B | Δ rubric |",
+    );
+    lines.push(
+      "| ---- | --- | ----- | - | ------ | ---- | -------- | ---------- | ------------- | ------ | -------- | -------- | -------- |",
+    );
+  } else {
+    lines.push(
+      "| Case | Run | Score | σ | Rounds | Stop | Disagree | Judge conf | Baseline conf | Δ |",
+    );
+    lines.push(
+      "| ---- | --- | ----- | - | ------ | ---- | -------- | ---------- | ------------- | - |",
+    );
+  }
   for (const r of runs) {
     if (r.failed) {
-      lines.push(
-        `| ${r.caseId} | ${r.runIndex} | — | — | — | — | — | — | — | _FAILED: ${escapeTable(r.errorMessage ?? "?")}_ |`,
-      );
+      const baseFailed = `| ${r.caseId} | ${r.runIndex} | — | — | — | — | — | — | — | _FAILED: ${escapeTable(r.errorMessage ?? "?")}_ |`;
+      lines.push(anyRubric ? `${baseFailed} — | — | — |` : baseFailed);
       continue;
     }
     const c = r.consensus;
     const delta = c.finalScore - r.baseline.confidence;
-    lines.push(
-      `| ${r.caseId} | ${r.runIndex} | ${c.finalScore} | ${c.finalStddev.toFixed(1)} | ${c.roundsCompleted} | ${shortStopReason(
-        c.result.stopReason,
-      )} | ${c.disagreementCount} | ${c.judgeConfidence ?? "—"} | ${r.baseline.confidence} | ${delta >= 0 ? "+" : ""}${delta} |`,
-    );
+    const baseRow = `| ${r.caseId} | ${r.runIndex} | ${c.finalScore} | ${c.finalStddev.toFixed(1)} | ${c.roundsCompleted} | ${shortStopReason(
+      c.result.stopReason,
+    )} | ${c.disagreementCount} | ${c.judgeConfidence ?? "—"} | ${r.baseline.confidence} | ${delta >= 0 ? "+" : ""}${delta} |`;
+    if (!anyRubric) {
+      lines.push(baseRow);
+      continue;
+    }
+    const cr = r.consensus.rubric;
+    const br = r.baseline.rubric;
+    const crCell = !cr ? "—" : cr.errorMessage ? "ERR" : `${cr.normalized}`;
+    const brCell = !br ? "—" : br.errorMessage ? "ERR" : `${br.normalized}`;
+    let rubricDeltaCell = "—";
+    if (cr && !cr.errorMessage && br && !br.errorMessage) {
+      const d = cr.normalized - br.normalized;
+      rubricDeltaCell = `${d >= 0 ? "+" : ""}${d}`;
+    }
+    lines.push(`${baseRow} ${crCell} | ${brCell} | ${rubricDeltaCell} |`);
   }
   return lines.join("\n");
 }

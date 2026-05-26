@@ -49,6 +49,10 @@ export function computeMetrics(
       consensusBeatsBaselineConfidenceRate: 0,
       runsCounted,
       runsAttempted,
+      consensusRubricNormalizedMean: undefined,
+      baselineRubricNormalizedMean: undefined,
+      consensusBeatsBaselineRubricRate: undefined,
+      rubricRunsCounted: 0,
     };
   }
 
@@ -99,6 +103,36 @@ export function computeMetrics(
   const beatHits = counted.filter((r) => r.consensus.finalScore > r.baseline.confidence).length;
   const consensusBeatsBaselineConfidenceRate = beatHits / runsCounted;
 
+  // Rubric metrics — held-out evaluator quality scores. Only runs where
+  // BOTH sides produced a successful rubric eval contribute to the rate;
+  // each side's mean counts its own successful evals independently.
+  const consensusRubricScores = counted
+    .map((r) => r.consensus.rubric)
+    .filter((rb): rb is NonNullable<typeof rb> => rb !== undefined && rb.errorMessage === undefined)
+    .map((rb) => rb.normalized);
+  const baselineRubricScores = counted
+    .map((r) => r.baseline.rubric)
+    .filter((rb): rb is NonNullable<typeof rb> => rb !== undefined && rb.errorMessage === undefined)
+    .map((rb) => rb.normalized);
+  const consensusRubricNormalizedMean =
+    consensusRubricScores.length > 0 ? mean(consensusRubricScores) : undefined;
+  const baselineRubricNormalizedMean =
+    baselineRubricScores.length > 0 ? mean(baselineRubricScores) : undefined;
+
+  const rubricPaired = counted.filter(
+    (r) =>
+      r.consensus.rubric !== undefined &&
+      r.consensus.rubric.errorMessage === undefined &&
+      r.baseline.rubric !== undefined &&
+      r.baseline.rubric.errorMessage === undefined,
+  );
+  const rubricRunsCounted = rubricPaired.length;
+  const consensusBeatsBaselineRubricRate =
+    rubricRunsCounted > 0
+      ? rubricPaired.filter((r) => r.consensus.rubric!.normalized > r.baseline.rubric!.normalized)
+          .length / rubricRunsCounted
+      : undefined;
+
   return {
     agreementRate,
     agreementStddevThreshold: threshold,
@@ -113,6 +147,10 @@ export function computeMetrics(
     consensusBeatsBaselineConfidenceRate,
     runsCounted,
     runsAttempted,
+    consensusRubricNormalizedMean,
+    baselineRubricNormalizedMean,
+    consensusBeatsBaselineRubricRate,
+    rubricRunsCounted,
   };
 }
 
@@ -145,6 +183,19 @@ export function buildQualitativeNotes(runs: readonly BenchRun[]): string[] {
     }
     if (r.consensus.judgeConfidence !== undefined) {
       tags.push(`judge confidence ${r.consensus.judgeConfidence}`);
+    }
+    if (
+      r.consensus.rubric &&
+      r.consensus.rubric.errorMessage === undefined &&
+      r.baseline.rubric &&
+      r.baseline.rubric.errorMessage === undefined
+    ) {
+      const cn = r.consensus.rubric.normalized;
+      const bn = r.baseline.rubric.normalized;
+      const delta = cn - bn;
+      tags.push(`rubric C=${cn} B=${bn} Δ=${delta >= 0 ? "+" : ""}${delta}`);
+    } else if (r.consensus.rubric?.errorMessage || r.baseline.rubric?.errorMessage) {
+      tags.push("rubric eval failed");
     }
     if (r.baseline.errorMessage) {
       tags.push(`baseline errored (${r.baseline.errorMessage})`);
