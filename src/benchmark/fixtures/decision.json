@@ -1,0 +1,34 @@
+{
+  "$schema": "https://entropyvortex.dev/consensus-bench-cases-v1.json",
+  "version": "1.0.0",
+  "name": "Decision-support benchmarks",
+  "cases": [
+    {
+      "id": "dec-rewrite-or-incremental",
+      "question": "Our 6-year-old monolith handles 80% of company revenue. Velocity has dropped — new features take 3-4x longer than estimates. The eng leadership is split between a 12-month full rewrite, a 6-month bounded refactor, and a continuous-incremental strategy. We have 18 engineers and a 9-month runway before our Series B. Rank these options and name the conditions under which the ranking flips.",
+      "panelId": "decision_making_v2",
+      "tags": ["decision", "engineering-strategy", "high-stakes"],
+      "expectedTopics": [
+        "expected value",
+        "rewrite risk",
+        "team morale",
+        "talent retention",
+        "competitive position"
+      ]
+    },
+    {
+      "id": "dec-self-host-vs-managed-pg",
+      "question": "We're moving off self-managed Postgres on EC2. Options: (a) RDS, (b) Aurora, (c) a hosted-Postgres specialist like Crunchy or Neon. Workload: 800 GB OLTP plus a 2 TB analytics replica. We have one Postgres expert on staff. Pick one and name the tripwire.",
+      "panelId": "decision_making_v2",
+      "tags": ["decision", "infrastructure", "data"],
+      "expectedTopics": ["operational overhead", "lock-in", "cost at scale", "expert dependency"]
+    },
+    {
+      "id": "dec-fire-senior-engineer",
+      "question": "A senior engineer is the world-class expert on one critical subsystem but has actively damaged team morale over 12 months — multiple junior engineers have quit citing them. Performance interventions have not changed behaviour. Options: (a) keep them and partition the team, (b) fire them and absorb the bus-factor risk, (c) try a final structured PIP. Rank with explicit conditions for switching.",
+      "panelId": "decision_making_v2",
+      "tags": ["decision", "people", "high-stakes"],
+      "expectedTopics": ["bus factor", "team health", "knowledge transfer", "legal/HR risk"]
+    }
+  ]
+}

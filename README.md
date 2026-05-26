@@ -1,12 +1,46 @@
 # ai-consensus-mcp
 
 > A stdio [Model Context Protocol](https://modelcontextprotocol.io) server that turns any MCP host into a multi-model roundtable.
-> Generic `consensus` tool plus task-tuned presets — code review, architecture debate, research synthesis, decision support, incident postmortem — each invokable as one command.
+> Generic `consensus` tool plus 13 task-tuned expert panels — code review, architecture, security red-team, ML research, decision support, incident postmortem, product strategy, and more — each invokable as one command.
 
 [![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
 [![license](https://img.shields.io/npm/l/ai-consensus-mcp)](./LICENSE)
 
-Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One config file, six tools, zero drama.
+Thin wrapper over [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core). One config file, 14 tools (17 with memory enabled), zero drama.
+
+## What's new in v0.12
+
+- **8 v2 expert panels** with versioned metadata, structured rationale, and
+  machine-readable `expectedOutputShape`. New: `security_redteam`,
+  `ml_research_2026`, `product_strategy`. Upgrades: `architecture_v2`,
+  `code_review_v2`, `research_synthesis_v2`, `decision_making_v2`,
+  `incident_postmortem_v2`. See [`docs/expert-panels.md`](./docs/expert-panels.md).
+- **`bench` CLI subcommand** — `npx ai-consensus-mcp bench --panel <id>`
+  measures panel uplift vs. a single-model baseline with agreement-rate,
+  convergence-speed, judge-confidence distribution, and duration/token
+  cost ratios. Deterministic with `--seed`. Built-in fixtures shipped
+  for architecture / code-review / security / decision suites.
+- **Persistent project memory** (opt-in). Set `memory.enabled: true` to
+  store every consensus result under a project-keyed directory and recall
+  prior decisions through three new MCP tools — `consensus_recall`,
+  `consensus_project_memory`, `consensus_what_we_decided`. Atomic
+  writes, sentinel-locked index, retention policy, whole-token keyword
+  recall with matched fragments. See [`docs/memory-layer.md`](./docs/memory-layer.md).
+- **`panel` argument on the generic `consensus` tool** — apply any expert
+  panel by id from the generic tool, for hosts that don't enumerate
+  per-panel tools.
+- All v1 presets continue to work unchanged.
+
+### Tool inventory at a glance
+
+| Tool                                                                                                                                                                                                                                                                          | Available when         |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `consensus` (generic, w/ `panel`)                                                                                                                                                                                                                                             | Always                 |
+| 5 v1 presets (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`)                                                                                                            | Always                 |
+| 8 v2 expert panels (`consensus_architecture_v2`, `consensus_code_review_v2`, `consensus_decision_making_v2`, `consensus_incident_postmortem_v2`, `consensus_research_synthesis_v2`, `consensus_security_redteam`, `consensus_ml_research_2026`, `consensus_product_strategy`) | Always                 |
+| `consensus_recall`                                                                                                                                                                                                                                                            | `memory.enabled: true` |
+| `consensus_project_memory`                                                                                                                                                                                                                                                    | `memory.enabled: true` |
+| `consensus_what_we_decided`                                                                                                                                                                                                                                                   | `memory.enabled: true` |
 
 ## Install in 30 seconds
 
@@ -22,13 +56,28 @@ npx -y ai-consensus-mcp install --config ~/.consensus.config.json
 
 Prefer to edit by hand? `cp consensus.config.example.json ~/.consensus.config.json && $EDITOR ~/.consensus.config.json` works too — see the "Configure" section below for the schema.
 
-The installer detects Claude Code, Cursor, and Windsurf and merges a `consensus` server entry into each one's MCP config (atomic write, never clobbers other entries). Restart the host afterwards — the `consensus` tool plus five preset variants (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`) appear in autocomplete.
+The installer detects Claude Code, Cursor, and Windsurf and merges a `consensus` server entry into each one's MCP config (atomic write, never clobbers other entries). Restart the host afterwards — the generic `consensus` tool plus 5 v1 presets and 8 v2 expert panels appear in autocomplete. See the [Tool inventory](#tool-inventory-at-a-glance) above or [`docs/expert-panels.md`](./docs/expert-panels.md) for the full catalogue.
 
 Scope the run with `--hosts claude-code,cursor`. Run `npx ai-consensus-mcp install --list-hosts` to see what's detected on your machine. Full reference in [`docs/install.md`](./docs/install.md).
 
 ## What it gives you
 
-- **Six MCP tools, one config.** The generic `consensus` tool plus five task-tuned presets (`consensus_code_review`, `consensus_architecture_debate`, `consensus_research_synthesis`, `consensus_decision_making`, `consensus_debug_postmortem`). Invoke a preset; get a curated panel and tuned defaults without touching the knobs.
+- **14 MCP tools, one config.** The generic `consensus` tool (with optional
+  `panel` argument), plus 5 v1 presets and 8 v2 expert panels. Invoke a
+  panel; get a curated set of personas and tuned defaults without touching
+  the knobs. Full catalogue in [`docs/expert-panels.md`](./docs/expert-panels.md).
+- **Benchmarking baked in.** `npx ai-consensus-mcp bench --panel <id>`
+  runs a panel against built-in or user-provided cases and produces a
+  human-readable + JSON uplift report — agreement rate, convergence
+  speed, judge confidence, duration/token cost ratios. Deterministic
+  with `--seed`.
+- **Persistent project memory (opt-in).** Enable with one config flag;
+  every panel run is durably stored, project-scoped, with three recall
+  tools — `consensus_recall`, `consensus_project_memory`,
+  `consensus_what_we_decided`. Atomic writes, sentinel-locked index,
+  retention policy, whole-token keyword recall with matched fragments
+  so the caller can sanity-check why a hit ranked. Disabled by default;
+  see [`docs/memory-layer.md`](./docs/memory-layer.md).
 - **Any OpenAI-compatible provider.** xAI Grok, Anthropic (via OpenAI-compat endpoint), OpenAI, Groq, Together, Fireworks, or your private gateway. One adapter, configurable per participant.
 - **The calling agent can also play (experimental).** A participant can be `kind: "host-sample"`, in which case the MCP host answers via [MCP sampling](https://modelcontextprotocol.io/specification/2025-06-18/client/sampling) — its own model takes a seat at the roundtable, no extra API key. **Today this only works in Claude Desktop**; Claude Code, Cursor, and Windsurf don't advertise the `sampling` capability yet (tracking: [anthropics/claude-code#1785](https://github.com/anthropics/claude-code/issues/1785)). See [the host-sample section](#participants-can-be-the-calling-host).
 - **Live progress.** Every structured engine event is forwarded as an MCP [progress notification](https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/progress) — hosts render real-time round/participant/disagreement/score status.
@@ -293,11 +342,13 @@ Every structured engine event is forwarded as an MCP `notifications/progress` me
 
 `progress` increments monotonically on `roundComplete` and `synthesisComplete`; `total` is `maxRounds + (judge ? 1 : 0)`.
 
-## Presets
+## Presets and expert panels
 
 The generic `consensus` tool exposes every engine knob. For most real work you don't want to tune knobs — you want a tuned panel for a specific task. Presets are that.
 
-Each preset is registered as its own MCP tool, so hosts surface them in autocomplete:
+Each preset is registered as its own MCP tool, so hosts surface them in autocomplete. The slate ships in two generations:
+
+### v1 presets (stable, ship unchanged for backward compat)
 
 | Tool                            | Panel (personas)                                                         | Rounds | Temp | Output shape                                                              |
 | ------------------------------- | ------------------------------------------------------------------------ | -----: | ---: | ------------------------------------------------------------------------- |
@@ -306,6 +357,27 @@ Each preset is registered as its own MCP tool, so hosts surface them in autocomp
 | `consensus_research_synthesis`  | scientific-skeptic, domain-expert, first-principles, optimistic-futurist |      4 |  0.4 | Citation-first claims with HIGH/MEDIUM/LOW confidence + open questions    |
 | `consensus_decision_making`     | vc-specialist, pessimist, domain-expert, devils-advocate                 |      4 |  0.5 | Ranked options with EV / risks / upsides + flip conditions                |
 | `consensus_debug_postmortem`    | pessimist, domain-expert, first-principles, scientific-skeptic           |      3 |  0.3 | Postmortem report (timeline, 5-whys root cause, remediation items)        |
+
+### v2 expert panels (v0.12 — tighter prompts, structured `meta`, machine-readable output shape)
+
+Every v2 panel ships full metadata — `version`, `rationale`,
+`expectedOutputShape` (sections + tags), free-form `tags` — so MCP
+clients and the bench CLI can introspect what a panel is for and what
+its judge synthesis will look like, without parsing prose.
+
+| Tool                               | Rationale (one-line)                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------- |
+| `consensus_architecture_v2`        | v1 + reversibility column + quantification enforced + specific tripwires   |
+| `consensus_code_review_v2`         | Findings must name (location, root cause, trigger, fix); Devil's required  |
+| `consensus_research_synthesis_v2`  | Evidence-type tags + independence map + leverage-ranked open questions     |
+| `consensus_decision_making_v2`     | Reversibility column + bets-we're-not-making preserves rejected paths      |
+| `consensus_incident_postmortem_v2` | Root cause must terminate at mechanism; class-of-incident prevention req'd |
+| `consensus_security_redteam`       | Defensive threat model; attack tree by severity × likelihood + CWE/OWASP   |
+| `consensus_ml_research_2026`       | 4-tier evidence taxonomy + scaling implications + reproducibility risk     |
+| `consensus_product_strategy`       | Market thesis + moats + 90d/1y/3y sequencing + bets-not-made               |
+
+Full per-panel reference (rationale, output sections, tuned defaults)
+is in [`docs/expert-panels.md`](./docs/expert-panels.md).
 
 ### Invoking a preset
 
@@ -342,10 +414,11 @@ If your config has no judge, presets still run and emit raw panel responses with
 
 ## Limits and non-goals
 
-- **No persistence.** Every tool call is a fresh run. If you want history, record `structuredContent` on the host side.
+- **Optional persistence only.** The default is stateless — every tool call is a fresh run. Opt in to the [memory layer](./docs/memory-layer.md) for project-scoped recall; the data lives on local disk only.
 - **No HTTP transport.** Stdio only. For HTTP/SSE, wrap [`ai-consensus-core`](https://github.com/entropyvortex/ai-consensus-core) directly.
 - **No token-budget enforcement.** `maxOutputTokens` is advisory per call; put usage alerts on your provider dashboards.
 - **No multi-run scheduling.** One run per call, sequential if the host queues them.
+- **No encryption at rest for memory.** The memory layer writes plaintext JSON. Don't enable it for runs whose questions contain secrets you don't want stored. See [`docs/memory-layer.md`](./docs/memory-layer.md#threat-model-and-the-storage-trade).
 
 If any of these become the thing you need most, the core library is the right place to plug in — this server is intentionally tiny.
 

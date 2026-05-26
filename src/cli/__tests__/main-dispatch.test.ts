@@ -101,6 +101,54 @@ describe("runMain — top-level flags", () => {
     expect(code).toBe(0);
     expect(captured.output.join("")).toContain("config");
   });
+
+  it("top-level help mentions the bench subcommand", async () => {
+    const code = await runMain(["--help"]);
+    expect(code).toBe(0);
+    expect(captured.output.join("")).toContain("bench");
+  });
+
+  it("bench --help prints bench help and returns 0", async () => {
+    const code = await runMain(["bench", "--help"]);
+    expect(code).toBe(0);
+    expect(captured.output.join("")).toContain("ai-consensus-mcp bench");
+  });
+
+  it("bench --list-panels lists available panels and returns 0", async () => {
+    const stdoutOutput: string[] = [];
+    const originalStdout = process.stdout.write.bind(process.stdout);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (process.stdout as any).write = ((chunk: string | Uint8Array) => {
+      stdoutOutput.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const code = await runMain(["bench", "--list-panels"]);
+      expect(code).toBe(0);
+      const out = stdoutOutput.join("");
+      expect(out).toContain("architecture_v2");
+      expect(out).toContain("security_redteam");
+      // Tag index — v0.12 polish. Locks the contract that tags surface
+      // in --list-panels so users can discover panels by category.
+      expect(out).toMatch(/tags:/);
+      expect(out).toMatch(/Tag index:/);
+      expect(out).toMatch(/--filter-tag/);
+    } finally {
+      process.stdout.write = originalStdout;
+    }
+  });
+
+  it("bench with no --config and no $CONSENSUS_CONFIG returns 2", async () => {
+    const prev = process.env["CONSENSUS_CONFIG"];
+    delete process.env["CONSENSUS_CONFIG"];
+    try {
+      const code = await runMain(["bench", "--panel", "architecture_v2"]);
+      expect(code).toBe(2);
+      expect(captured.output.join("")).toMatch(/config.*required/i);
+    } finally {
+      if (prev !== undefined) process.env["CONSENSUS_CONFIG"] = prev;
+    }
+  });
 });
 
 describe("runMain — backward-compat dispatch", () => {

@@ -6,10 +6,12 @@
 // participants materialised, defaults in place.
 
 import { readFile, rename, writeFile } from "node:fs/promises";
-import { resolve as resolvePath } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
+import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -81,6 +83,11 @@ const RawConfigSchema = z
     participants: z.array(ParticipantConfigSchema).min(2),
     judge: JudgeConfigSchema.optional(),
     defaults: DefaultsSchema.optional(),
+    /**
+     * Optional memory-layer config. Off by default — every field opt-in.
+     * See docs/memory-layer.md + PREMORTEM-memory-layer.md.
+     */
+    memory: MemoryConfigSchema.optional(),
   })
   .strict();
 
@@ -156,6 +163,25 @@ export interface LoadedConfig {
   judge: ResolvedJudge | undefined;
   /** Defaults to apply when the tool input omits a field. */
   defaults: ResolvedDefaults;
+  /**
+   * Resolved memory-layer config. `enabled === false` skips wiring memory
+   * tools and never touches disk — premortem F10.
+   */
+  memory: ResolvedMemoryRuntime;
+}
+
+export interface ResolvedMemoryRuntime {
+  enabled: boolean;
+  /**
+   * Absolute storage root. When `memory.storagePath` is set in the config,
+   * it's taken verbatim. Otherwise defaults to `~/.consensus/memory/`.
+   * The project-key suffix is applied at store-construction time, not here.
+   */
+  storageRoot: string;
+  maxResults: number;
+  maxAgeDays: number;
+  /** Raw config block, for inspection / round-tripping. */
+  raw: MemoryConfig | undefined;
 }
 
 // ── Loader ───────────────────────────────────────────────────
@@ -276,6 +302,8 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     useJudge: raw.defaults?.useJudge ?? Boolean(judge),
   };
 
+  const memory = resolveMemoryRuntime(raw.memory);
+
   return {
     sourcePath: absolute,
     providers,
@@ -284,6 +312,25 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     hostSampleParticipants,
     judge,
     defaults,
+    memory,
+  };
+}
+
+/**
+ * Defaults the memory-layer's storage root to `~/.consensus/memory` when the
+ * user didn't supply one. Pure (no I/O) so call sites can rely on it for
+ * test scaffolding too.
+ */
+export function resolveMemoryRuntime(raw: MemoryConfig | undefined): ResolvedMemoryRuntime {
+  const enabled = raw?.enabled ?? false;
+  const defaultRoot = join(homedir(), ".consensus", "memory");
+  const storageRoot = raw?.storagePath ? resolvePath(raw.storagePath) : defaultRoot;
+  return {
+    enabled,
+    storageRoot,
+    maxResults: raw?.retention?.maxResults ?? 1000,
+    maxAgeDays: raw?.retention?.maxAgeDays ?? 365,
+    raw,
   };
 }
 

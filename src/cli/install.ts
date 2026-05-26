@@ -249,7 +249,7 @@ export async function runInstall(argv: readonly string[]): Promise<number> {
   }
 
   process.stderr.write(
-    `\nNext: restart the affected MCP host(s). The "${parsed.serverName}" server should appear with 6 tools (consensus + 5 presets).\n`,
+    `\nNext: restart the affected MCP host(s). The "${parsed.serverName}" server should appear with 14 tools — the generic \`consensus\` (with optional \`panel\` arg), 5 v1 presets, and 8 v2 expert panels. Three additional memory tools (\`consensus_recall\`, \`consensus_project_memory\`, \`consensus_what_we_decided\`) appear when \`memory.enabled\` is true in your config.\n`,
   );
   return 0;
 }

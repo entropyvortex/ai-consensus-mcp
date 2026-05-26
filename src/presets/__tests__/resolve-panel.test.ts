@@ -27,6 +27,13 @@ function makeConfig(personaIds: string[], hasJudge = false): LoadedConfig {
     participants,
     providerByParticipant,
     hostSampleParticipants: {},
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: hasJudge
       ? {
           providerId: "test",
@@ -201,6 +208,13 @@ describe("resolvePresetPanel", () => {
       ],
       providerByParticipant: { p_pess: "test" },
       hostSampleParticipants: { p_self: { modelHint: undefined } },
+      memory: {
+        enabled: false,
+        storageRoot: "/tmp/test-memory",
+        maxResults: 1000,
+        maxAgeDays: 365,
+        raw: undefined,
+      },
       judge: undefined,
       defaults: {
         maxRounds: 4,

@@ -103,6 +103,49 @@ describe("createRegistry", () => {
   it("validates on construction (rejects bad shapes loudly)", () => {
     expect(() => createRegistry([makePreset({ id: "BAD" })])).toThrow();
   });
+
+  it("listByTag returns presets carrying the tag in meta.tags", () => {
+    const tagged = makePreset({
+      id: "tagged",
+      toolName: "consensus_tagged",
+      meta: {
+        version: "1.0.0",
+        rationale: "ok",
+        tags: ["security", "v2"],
+      },
+    });
+    const untagged = makePreset({ id: "plain", toolName: "consensus_plain" });
+    const reg = createRegistry([tagged, untagged]);
+    expect(reg.listByTag("security").map((p) => p.id)).toEqual(["tagged"]);
+    expect(reg.listByTag("missing")).toEqual([]);
+    // Case-sensitive — tags are compared verbatim
+    expect(reg.listByTag("SECURITY")).toEqual([]);
+  });
+
+  it("listByTag returns [] when no preset carries meta.tags at all", () => {
+    const reg = createRegistry([makePreset()]);
+    expect(reg.listByTag("anything")).toEqual([]);
+  });
+
+  it("allTags returns the sorted union of meta.tags across presets", () => {
+    const a = makePreset({
+      id: "a",
+      toolName: "consensus_a",
+      meta: { version: "1.0.0", rationale: "x", tags: ["security", "ops"] },
+    });
+    const b = makePreset({
+      id: "b",
+      toolName: "consensus_b",
+      meta: { version: "1.0.0", rationale: "y", tags: ["security", "research"] },
+    });
+    const reg = createRegistry([a, b]);
+    expect(reg.allTags()).toEqual(["ops", "research", "security"]);
+  });
+
+  it("allTags returns [] when no preset declares meta.tags", () => {
+    const reg = createRegistry([makePreset()]);
+    expect(reg.allTags()).toEqual([]);
+  });
 });
 
 describe("mergePresets", () => {

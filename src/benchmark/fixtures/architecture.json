@@ -1,0 +1,53 @@
+{
+  "$schema": "https://entropyvortex.dev/consensus-bench-cases-v1.json",
+  "version": "1.0.0",
+  "name": "Architecture decision benchmarks",
+  "cases": [
+    {
+      "id": "arch-microservices-day-one",
+      "question": "A five-person engineering team is starting a B2B SaaS product expected to reach 50k monthly active users in 18 months. Should they adopt microservices from day one, start with a modular monolith, or default to a single service? Quantify the trade-offs and pick one.",
+      "panelId": "architecture_v2",
+      "tags": ["architecture", "startup", "scale"],
+      "expectedTopics": [
+        "operational complexity",
+        "deployment cadence",
+        "team coordination cost",
+        "scale ceiling",
+        "rewrite risk"
+      ]
+    },
+    {
+      "id": "arch-event-sourcing-billing",
+      "question": "We are designing a billing system that must support invoicing in 12 currencies, retroactive corrections going back 7 years for audit, and per-customer pricing experiments. Should the system be event-sourced, use a traditional relational schema with audit tables, or a hybrid? Name the dominant trade-off.",
+      "panelId": "architecture_v2",
+      "tags": ["architecture", "data", "billing"],
+      "expectedTopics": ["audit trail", "schema evolution", "query performance", "operational cost"]
+    },
+    {
+      "id": "arch-sync-vs-async-fanout",
+      "question": "A web application sends notifications via email, SMS, push, and Slack on every order confirmation. Per-channel latency varies from 50ms to 8 seconds. Should the order endpoint dispatch all four synchronously, fan out to an internal queue, or use a hosted workflow engine like Temporal? Stress-test failure modes.",
+      "panelId": "architecture_v2",
+      "tags": ["architecture", "messaging", "reliability"],
+      "expectedTopics": [
+        "tail latency",
+        "partial failure",
+        "retry semantics",
+        "operational cost",
+        "observability"
+      ]
+    },
+    {
+      "id": "arch-db-multi-tenant",
+      "question": "We need to choose a multi-tenant database strategy for a B2B SaaS with 2,000 enterprise customers, the largest of whom has 100M rows. Options: shared schema with tenant_id column, schema-per-tenant in one Postgres, or database-per-tenant on managed Postgres. What's the right call and what would flip the answer?",
+      "panelId": "architecture_v2",
+      "tags": ["architecture", "data", "multi-tenant"],
+      "expectedTopics": [
+        "noisy neighbour",
+        "backup/restore cost",
+        "migration speed",
+        "operational headcount",
+        "compliance"
+      ]
+    }
+  ]
+}

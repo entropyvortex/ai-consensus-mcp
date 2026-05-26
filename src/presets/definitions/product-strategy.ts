@@ -1,0 +1,168 @@
+// ─────────────────────────────────────────────────────────────
+// Expert panel: product_strategy
+// ─────────────────────────────────────────────────────────────
+// Strategic product / company / market positioning roundtable. The
+// panel triangulates market thesis, differentiation, moats, build-out
+// sequencing, and the threats that would invalidate the strategy.
+// Required: "bets we're consciously not making" — preserves the
+// rejected paths so future reviewers can challenge from context.
+
+import type { Preset } from "../types.js";
+
+export const PRODUCT_STRATEGY_PRESET: Preset = {
+  id: "product_strategy",
+  toolName: "consensus_product_strategy",
+  title: "Product strategy roundtable",
+  description: [
+    "Run a strategic analysis of a product, market, or company positioning across",
+    "the configured panel.",
+    "",
+    "Pass the strategy, positioning thesis, or market situation as `prompt`",
+    "(include market size assumptions, competitive landscape, and current",
+    "constraints). The panel triangulates from four angles — market thesis,",
+    "build/execute reality, competitive threats, and forward-looking vision —",
+    "over four rounds. The judge produces a market thesis, differentiation",
+    "claims, moat analysis, a 90-day / 1-year / 3-year sequencing plan, and the",
+    "early-warning signals for top risks. Includes 'bets we're consciously not",
+    "making' so the rejected paths survive.",
+    "",
+    "Best for: product positioning, market-entry decisions, pivot evaluation,",
+    "strategic narrative for fundraising or planning, sequencing the next 12",
+    "months of build-out, choosing what NOT to do.",
+  ].join("\n"),
+  panel: [
+    {
+      personaId: "vc-specialist",
+      required: true,
+      taskSystemSuffix: [
+        "TASK: product strategy.",
+        "Frame the market thesis with TAM / SAM / SOM where numbers exist; when",
+        "they don't, name the missing input and propose a defensible bound. Identify",
+        "the unit economics (CAC, payback period, LTV, gross margin). Evaluate moats:",
+        "network effects, switching costs, scale economies, data advantages, brand,",
+        "regulatory. Distinguish moats that compound from ones that erode.",
+      ].join("\n"),
+    },
+    {
+      personaId: "domain-expert",
+      required: true,
+      taskSystemSuffix: [
+        "TASK: product strategy.",
+        "Anchor in build-out reality. What's required to actually ship this — team",
+        "size, key hires, infra cost, time to first usable version, time to scale.",
+        "Identify the load-bearing technical bets (what has to work for the strategy",
+        "to work) and the load-bearing organisational bets (what culture, structure,",
+        "or talent constraint becomes the binding constraint). Name analogous shipped",
+        "products that have walked this path and what they learned.",
+      ].join("\n"),
+    },
+    {
+      personaId: "devils-advocate",
+      required: true,
+      fallbackPersonaIds: ["pessimist"],
+      taskSystemSuffix: [
+        "TASK: product strategy.",
+        "Construct the strongest competitive threat. Which incumbent, well-funded",
+        "startup, or open-source project would notice this and respond — and how?",
+        "What's the cheapest competitive move that nullifies the strategy? What",
+        "platform shift (Apple, Google, OpenAI, regulatory) would invalidate the",
+        "thesis? For each threat: probability and the early signal that it's",
+        "materialising.",
+      ].join("\n"),
+    },
+    {
+      personaId: "optimistic-futurist",
+      required: true,
+      fallbackPersonaIds: ["first-principles"],
+      taskSystemSuffix: [
+        "TASK: product strategy.",
+        "Project the strategy 3 years out under a credible upside scenario. What",
+        "does the product look like? Who uses it and how? What adjacent markets",
+        "or product lines unlock? Be specific about the inflection points — when",
+        "does the strategy graduate from 'first product' to 'platform' to 'category",
+        "owner'. Name the metric that signals each transition.",
+      ].join("\n"),
+    },
+  ],
+  defaults: {
+    maxRounds: 4,
+    participantTemperature: 0.55,
+    convergenceDelta: 3,
+    disagreementThreshold: 18,
+    blindFirstRound: true,
+    randomizeOrder: true,
+  },
+  judgeSystemPrompt: [
+    "You are synthesising a product-strategy roundtable.",
+    "",
+    "Produce a strategy report with this exact structure:",
+    "  ## Market thesis",
+    "  Concise statement of who the customer is, what they're hiring the product",
+    "  to do, and why now. Include TAM/SAM/SOM where the panel produced numbers;",
+    "  mark assumptions explicitly.",
+    "  ## Differentiation",
+    "  Top 3 differentiation claims, each with the specific competitor or",
+    "  alternative it's measured against. Distinguish claims that hold today from",
+    "  ones that require execution to materialise.",
+    "  ## Moat analysis",
+    "  For each moat candidate: type (network / switching / scale / data /",
+    "  brand / regulatory), strength today (low/med/high), compounding direction",
+    "  (compounds / stable / erodes), and the action required to harden it.",
+    "  ## Sequencing plan",
+    "  - 90 days: 3-5 concrete deliverables, each with the outcome it unlocks.",
+    "  - 1 year: 3-5 milestones with the metric that signals each is hit.",
+    "  - 3 years: the inflection points (first product → platform → category owner)",
+    "    and the metric that signals each transition.",
+    "  ## Top risks + early signals",
+    "  Numbered, highest first. For each: the risk (specific competitive move,",
+    "  platform shift, execution gap), probability, and the early signal that",
+    "  it's materialising — name the metric, source, and threshold.",
+    "  ## Bets we're consciously not making",
+    "  Numbered. The adjacent paths the panel evaluated and rejected, with the",
+    "  reason. Preserves rejected paths so a future reviewer doesn't undo the",
+    "  call without remembering the context.",
+    "",
+    "Lead with conviction. State your synthesis confidence.",
+  ].join("\n"),
+  meta: {
+    version: "1.0.0",
+    rationale: [
+      "Product strategy frequently fails by collapsing into one of two patterns:",
+      "vision without execution reality (futurist-only), or execution without vision",
+      "(operator-only). This panel forces four perspectives that triangulate the",
+      "decision: market thesis (VC), execution reality (Domain), competitive threat",
+      "(Devil's Advocate), upside path (Futurist). The 'bets we're not making'",
+      "section is required because strategy is what you choose not to do.",
+    ].join(" "),
+    expectedOutputShape: {
+      sections: [
+        {
+          heading: "Market thesis",
+          description: "Customer, job-to-be-done, why-now, with TAM/SAM/SOM where available.",
+        },
+        {
+          heading: "Differentiation",
+          description: "Top 3 differentiation claims with specific competitors or alternatives.",
+        },
+        {
+          heading: "Moat analysis",
+          description: "Moats with type, strength, compounding direction, and hardening action.",
+        },
+        {
+          heading: "Sequencing plan",
+          description: "90-day deliverables, 1-year milestones, 3-year inflection points.",
+        },
+        {
+          heading: "Top risks + early signals",
+          description: "Risks ordered by severity with probability and the early signal metric.",
+        },
+        {
+          heading: "Bets we're consciously not making",
+          description: "Rejected adjacent paths with the reason for rejection.",
+        },
+      ],
+      tags: ["high", "medium", "low"],
+    },
+    tags: ["product", "strategy", "market", "high-stakes"],
+  },
+};

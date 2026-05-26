@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.entropyvortex/ai-consensus-mcp",
-  "description": "Stdio MCP server exposing the Consensus Validation Protocol — multi-model debate with confidence-weighted scoring, disagreement detection, and an optional judge synthesizer. Generic `consensus` tool plus task-tuned presets for code review, architecture debate, research synthesis, decision support, and incident postmortem.",
-  "version": "0.10.0",
+  "description": "Stdio MCP server exposing the Consensus Validation Protocol — multi-model debate with confidence-weighted scoring, disagreement detection, and an optional judge synthesizer. Generic `consensus` tool plus 13 task-tuned expert panels (architecture, code review, security red-team, ML research, decision support, incident postmortem, product strategy, research synthesis), an opt-in persistent project-memory layer, and a benchmarking CLI.",
+  "version": "0.12.0",
   "repository": {
     "url": "https://github.com/entropyvortex/ai-consensus-mcp",
     "source": "github"
@@ -12,7 +12,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "ai-consensus-mcp",
-      "version": "0.10.0",
+      "version": "0.12.0",
       "transport": {
         "type": "stdio"
       },

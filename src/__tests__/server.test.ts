@@ -24,6 +24,13 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
     ],
     providerByParticipant: { p1: "test", p2: "test" },
     hostSampleParticipants: {},
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -56,6 +63,13 @@ function makeUnrunnableForCodeReviewConfig(): LoadedConfig {
     ],
     providerByParticipant: { p_pessimist: "test", p_vc: "test" },
     hostSampleParticipants: {},
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,
@@ -87,6 +101,13 @@ function makeFullPanelConfig(): LoadedConfig {
     participants,
     providerByParticipant,
     hostSampleParticipants: {},
+    memory: {
+      enabled: false,
+      storageRoot: "/tmp/test-memory",
+      maxResults: 1000,
+      maxAgeDays: 365,
+      raw: undefined,
+    },
     judge: undefined,
     defaults: {
       maxRounds: 4,

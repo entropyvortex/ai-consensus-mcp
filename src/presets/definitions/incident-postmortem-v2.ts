@@ -1,0 +1,183 @@
+// ─────────────────────────────────────────────────────────────
+// Expert panel: incident_postmortem_v2
+// ─────────────────────────────────────────────────────────────
+// Second-generation incident postmortem. Class-of-incident prevention
+// is required (not optional). 5-whys must terminate at a real
+// mechanism, not at an organisational gap. Detection-gap analysis
+// and contributing factors are separated from root cause so the
+// remediation plan doesn't pretend organisational fixes are mechanism
+// fixes.
+
+import type { Preset } from "../types.js";
+
+export const INCIDENT_POSTMORTEM_V2_PRESET: Preset = {
+  id: "incident_postmortem_v2",
+  toolName: "consensus_incident_postmortem_v2",
+  title: "Incident postmortem (v2)",
+  description: [
+    "Run a structured incident postmortem across the configured panel, v2.",
+    "",
+    "Pass the incident as `prompt` (timeline, symptoms, what was tried, what was",
+    "found). The panel analyses from four angles — failure-mode mapping,",
+    "operational pattern recognition, mechanism-level root cause via 5-whys, and",
+    "evidence demands. The judge produces a postmortem with a strict",
+    "mechanism-only root cause (organisational gaps go in 'contributing'), a",
+    "detection-gap analysis, prioritised remediation items, and the architectural",
+    "change that would prevent the entire incident class — not just this incident.",
+    "",
+    "Improvements over v1: class-of-incident prevention is a required section,",
+    "5-whys must terminate at a real mechanism (no 'we should have monitored X'",
+    "as root cause), and remediations are tagged with which gap they close so",
+    "patches don't drift from the actual cause.",
+    "",
+    "Best for: production incidents, regression debugging, support escalations,",
+    "near-miss reviews. Low temperature — postmortems reward precision over",
+    "creative speculation.",
+  ].join("\n"),
+  panel: [
+    {
+      personaId: "pessimist",
+      required: true,
+      taskSystemSuffix: [
+        "TASK: incident postmortem (v2).",
+        "Identify what failed, what amplified the impact, why detection lagged,",
+        "and what could fail next under similar load. Be specific about timing",
+        "(detection time, escalation time, mitigation time), blast radius",
+        "(users affected / requests affected / data corrupted), and the chain",
+        "of dependencies that propagated the fault. Flag near-miss conditions",
+        "that almost triggered a worse outcome.",
+      ].join("\n"),
+    },
+    {
+      personaId: "domain-expert",
+      required: true,
+      taskSystemSuffix: [
+        "TASK: incident postmortem (v2).",
+        "Map this incident to known failure-mode taxonomies — retry storms,",
+        "thundering herds, bimodal latency, replication lag, schema drift, cache",
+        "stampedes, head-of-line blocking, partial-failure escalation. Cite",
+        "analogous incidents with the same shape (your own or industry) and how",
+        "they were remediated. Name the failure category explicitly.",
+      ].join("\n"),
+    },
+    {
+      personaId: "first-principles",
+      required: true,
+      taskSystemSuffix: [
+        "TASK: incident postmortem (v2).",
+        "Apply 5-whys until you reach a real mechanism: what physically had to be",
+        "true for this to happen? Reject organisational answers ('we should have",
+        "monitored X', 'we lacked a runbook', 'on-call wasn't alerted in time')",
+        "as root causes — those are remediations or contributing factors, not",
+        "mechanisms. Force the chain down to memory layout, request ordering,",
+        "lock acquisition, replication state, or other physical/computational",
+        "primitives. If the chain bottoms out at a design decision, name the",
+        "decision and the assumption it depended on.",
+      ].join("\n"),
+    },
+    {
+      personaId: "scientific-skeptic",
+      required: false,
+      fallbackPersonaIds: ["devils-advocate"],
+      taskSystemSuffix: [
+        "TASK: incident postmortem (v2).",
+        "Demand falsifiable evidence for every causal claim. If the panel says",
+        "'X caused Y', ask: what would be true if X did NOT cause Y? Was that",
+        "ruled out by log evidence, by reproduction, or merely by assumption?",
+        "Push back on hindsight bias and on plausible-sounding stories that lack",
+        "a verifiable mechanism. Flag every claim that survives only because",
+        "no one tried to falsify it.",
+      ].join("\n"),
+    },
+  ],
+  defaults: {
+    maxRounds: 3,
+    participantTemperature: 0.25,
+    convergenceDelta: 4,
+    disagreementThreshold: 18,
+    blindFirstRound: true,
+    randomizeOrder: true,
+  },
+  judgeSystemPrompt: [
+    "You are synthesising an incident postmortem (v2).",
+    "",
+    "Produce a postmortem report with this exact structure:",
+    "  ## Summary",
+    "  2-4 sentences: what broke, scope, duration, top remediation.",
+    "  ## Timeline",
+    "  Bulleted with timestamps when present. Include: time of fault, time of",
+    "  first symptom, time of detection, time of escalation, time of mitigation,",
+    "  time of full recovery. Calculate each gap.",
+    "  ## Root cause",
+    "  The 5-whys chain ending at a real mechanism. If the chain terminates at a",
+    "  design decision, name the decision and the assumption it depended on.",
+    "  Do NOT terminate at 'we should have monitored X' or any organisational",
+    "  gap — those go in Contributing factors.",
+    "  ## Contributing factors",
+    "  Bulleted. Organisational, process, or context factors that made this worse",
+    "  but were not the mechanism. Includes missing monitoring, missing runbook,",
+    "  on-call gaps, training gaps.",
+    "  ## Detection gap analysis",
+    "  Why didn't we see it sooner? What signal would have caught it earlier?",
+    "  What's the cost of that signal in noise / alert fatigue?",
+    "  ## Remediation items",
+    "  Numbered. For each:",
+    "    • Action (concrete).",
+    "    • Severity: HIGH / MEDIUM / LOW.",
+    "    • Owner role (not person).",
+    "    • Which gap it closes (mechanism / contributing / detection).",
+    "    • Cost: low / medium / high in person-weeks.",
+    "  ## Class-of-incident prevention",
+    "  The expensive architectural change that makes this whole failure category",
+    "  impossible, not just unlikely. Quantify the cost. Name the next two",
+    "  incidents this would also have prevented.",
+    "",
+    "Failures are system-level. Use roles, not names. Do not assign blame.",
+  ].join("\n"),
+  meta: {
+    version: "2.0.0",
+    rationale: [
+      "v2 enforces three disciplines v1 left implicit: root cause must terminate at",
+      "a real mechanism (not 'we should have monitored X'); contributing factors are",
+      "separated from root cause to prevent organisational fixes masquerading as",
+      "mechanism fixes; class-of-incident prevention is a required section, not",
+      "optional, because the structural fix is the only durable answer.",
+    ].join(" "),
+    expectedOutputShape: {
+      sections: [
+        {
+          heading: "Summary",
+          description: "What broke, scope, duration, top remediation in 2-4 sentences.",
+        },
+        {
+          heading: "Timeline",
+          description:
+            "Timestamped events with computed gaps (detection, escalation, mitigation, recovery).",
+        },
+        {
+          heading: "Root cause",
+          description: "5-whys chain ending at a real mechanism (not an organisational gap).",
+        },
+        {
+          heading: "Contributing factors",
+          description:
+            "Organisational/process factors that made it worse, separated from root cause.",
+        },
+        {
+          heading: "Detection gap analysis",
+          description: "Why detection lagged and what signal would catch it earlier.",
+        },
+        {
+          heading: "Remediation items",
+          description: "Severity-tagged actions with owner role, gap-closed, and cost.",
+        },
+        {
+          heading: "Class-of-incident prevention",
+          description: "Architectural change that prevents the whole failure category.",
+        },
+      ],
+      tags: ["HIGH", "MEDIUM", "LOW"],
+    },
+    tags: ["postmortem", "incident", "v2", "high-precision"],
+  },
+};

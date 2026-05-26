@@ -1,6 +1,6 @@
 {
   "name": "ai-consensus-mcp",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Stdio MCP server exposing the Consensus Validation Protocol as a single `consensus` tool. Thin wrapper over ai-consensus-core.",
   "keywords": [
     "mcp",
@@ -37,7 +37,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "build": "tsc -p tsconfig.build.json && mkdir -p dist/benchmark/fixtures && cp src/benchmark/fixtures/*.json dist/benchmark/fixtures/ && chmod +x dist/index.js",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src/",
