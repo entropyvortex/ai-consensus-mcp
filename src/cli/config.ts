@@ -535,9 +535,7 @@ async function editHeadersMap(
 // ── Participants ─────────────────────────────────────────────
 
 async function editParticipants(config: RawConfig): Promise<RawConfig | undefined> {
-  // host-sample participants don't need a provider, so the participant menu
-  // is reachable even with zero providers configured. Provider-backed entries
-  // still validate that a provider exists at form time.
+  // Participants are provider-backed only.
   const next = structuredClone(config);
   let touched = false;
 
@@ -609,9 +607,6 @@ async function editParticipants(config: RawConfig): Promise<RawConfig | undefine
 }
 
 function describeParticipantBackend(p: RawParticipantConfig): string {
-  if (p.kind === "host-sample") {
-    return p.modelHint ? `host-sample (hint: ${p.modelHint})` : "host-sample";
-  }
   return `${p.provider}/${p.modelId}`;
 }
 
@@ -634,25 +629,6 @@ async function editParticipantForm(
       }
       return true;
     },
-  });
-
-  // Pick the backend: a configured provider, or the calling MCP host (sampling).
-  const kindChoices: { name: string; value: "provider" | "host-sample"; description?: string }[] = [
-    {
-      name: "Configured provider (HTTP, requires API key)",
-      value: "provider",
-      description: "OpenAI, Anthropic, xAI, Groq, etc.",
-    },
-    {
-      name: "MCP host sampling (the calling agent answers)",
-      value: "host-sample",
-      description: "The host (Claude Code, Cursor, …) responds with whatever model it is running.",
-    },
-  ];
-  const kind = await select<"provider" | "host-sample">({
-    message: "Backend",
-    choices: kindChoices,
-    default: existing?.kind === "host-sample" ? "host-sample" : "provider",
   });
 
   const personaId = await select<string>({
@@ -680,33 +656,10 @@ async function editParticipantForm(
     label = trimmed.length > 0 ? trimmed : undefined;
   }
 
-  if (kind === "host-sample") {
-    const wantsHint = await confirm({
-      message: "Provide an optional modelHint for the host's sampler? (most users skip this)",
-      default: existing?.kind === "host-sample" && existing.modelHint !== undefined,
-    });
-    let modelHint: string | undefined;
-    if (wantsHint) {
-      const hintInput = await input({
-        message: "modelHint (e.g. `claude-sonnet`, `gpt-5`)",
-        default: existing?.kind === "host-sample" ? (existing.modelHint ?? "") : "",
-      });
-      const trimmed = hintInput.trim();
-      modelHint = trimmed.length > 0 ? trimmed : undefined;
-    }
-    return {
-      kind: "host-sample",
-      id: id.trim(),
-      personaId,
-      ...(label !== undefined ? { label } : {}),
-      ...(modelHint !== undefined ? { modelHint } : {}),
-    };
-  }
-
-  // kind === "provider" — need provider + modelId.
+  // Provider-backed only
   if (providerIds.length === 0) {
     process.stderr.write(
-      `\n⚠ No providers configured yet. Add at least one provider before using a provider-backed participant.\n`,
+      `\n⚠ No providers configured yet. Add at least one provider before adding a participant.\n`,
     );
     return undefined;
   }
@@ -714,13 +667,12 @@ async function editParticipantForm(
   const provider = await select<string>({
     message: "Provider",
     choices: providerIds.map((p) => ({ name: p, value: p })),
-    default:
-      existing?.kind !== "host-sample" ? (existing?.provider ?? providerIds[0]!) : providerIds[0]!,
+    default: existing?.provider ?? providerIds[0]!,
   });
 
   const modelId = await input({
     message: "Model id (opaque string the provider accepts)",
-    default: existing?.kind !== "host-sample" ? (existing?.modelId ?? "") : "",
+    default: existing?.modelId ?? "",
     validate: (v) => (v.trim() ? true : "Required"),
   });
 

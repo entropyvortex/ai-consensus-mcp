@@ -26,7 +26,7 @@ function makeConfig(memoryRoot: string, enabled: boolean): LoadedConfig {
       { id: "p2", modelId: "m-b", persona: PERSONAS[1]! },
     ],
     providerByParticipant: { p1: "test", p2: "test" },
-    hostSampleParticipants: {},
+
     memory: {
       enabled,
       storageRoot: memoryRoot,

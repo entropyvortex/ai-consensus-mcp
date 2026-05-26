@@ -11,15 +11,13 @@
 // mutated. Specialised personas live only on the per-call participants.
 
 import type { Participant, Persona } from "ai-consensus-core";
-import type { HostSampleMeta, LoadedConfig } from "../config.js";
+import type { LoadedConfig } from "../config.js";
 import type { Preset, PresetRunnability } from "./types.js";
 
 export interface ResolvedPanel {
   participants: Participant[];
-  /** Provider routing for the resolved provider-backed participants. */
+  /** Provider routing for the resolved participants. */
   providerByParticipant: Record<string, string>;
-  /** Subset of resolved participants that answer via MCP host sampling. */
-  hostSampleParticipants: Record<string, HostSampleMeta>;
 }
 
 /**
@@ -63,22 +61,16 @@ export function resolvePresetPanel(preset: Preset, config: LoadedConfig): Resolv
     // First-wins: if a user configured two participants sharing the same
     // personaId (unusual), the first one anchors that persona slot.
     if (!byPersonaId.has(cp.persona.id)) {
-      const hostSample = config.hostSampleParticipants[cp.id];
-      if (hostSample) {
-        byPersonaId.set(cp.persona.id, { participant: cp, kind: "host-sample", hostSample });
-        continue;
-      }
       const providerId = config.providerByParticipant[cp.id];
       if (!providerId) {
         return new Error(`internal: configured participant "${cp.id}" has no provider mapping.`);
       }
-      byPersonaId.set(cp.persona.id, { participant: cp, kind: "provider", providerId });
+      byPersonaId.set(cp.persona.id, { participant: cp, providerId });
     }
   }
 
   const participants: Participant[] = [];
   const providerByParticipant: Record<string, string> = {};
-  const hostSampleParticipants: Record<string, HostSampleMeta> = {};
   const usedPersonaIds = new Set<string>();
 
   for (const entry of preset.panel) {
@@ -119,11 +111,7 @@ export function resolvePresetPanel(preset: Preset, config: LoadedConfig): Resolv
     };
 
     participants.push(newParticipant);
-    if (matched.kind === "host-sample") {
-      hostSampleParticipants[newParticipant.id] = matched.hostSample;
-    } else {
-      providerByParticipant[newParticipant.id] = matched.providerId;
-    }
+    providerByParticipant[newParticipant.id] = matched.providerId;
   }
 
   if (participants.length < 2) {
@@ -138,7 +126,7 @@ export function resolvePresetPanel(preset: Preset, config: LoadedConfig): Resolv
     providerByParticipant["judge"] = config.providerByParticipant["judge"];
   }
 
-  return { participants, providerByParticipant, hostSampleParticipants };
+  return { participants, providerByParticipant };
 }
 
 function appendTaskSuffix(base: string, suffix: string): string {
@@ -161,6 +149,4 @@ function buildMissingError(
   );
 }
 
-type ConfiguredEntry =
-  | { participant: Participant; kind: "provider"; providerId: string }
-  | { participant: Participant; kind: "host-sample"; hostSample: HostSampleMeta };
+type ConfiguredEntry = { participant: Participant; providerId: string };

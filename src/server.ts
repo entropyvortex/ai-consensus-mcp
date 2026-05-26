@@ -19,8 +19,8 @@ import {
   type ConsensusResult,
   type Participant,
 } from "ai-consensus-core";
-import type { HostSampleMeta, LoadedConfig, ResolvedDefaults } from "./config.js";
-import { createRoutedCaller } from "./adapter.js";
+import type { LoadedConfig, ResolvedDefaults } from "./config.js";
+import { createOpenAICompatibleCaller } from "./adapter.js";
 import { wireEngineProgress } from "./progress.js";
 import { BUILT_IN_PRESETS } from "./presets/definitions/index.js";
 import { createRegistry, type PresetRegistry } from "./presets/registry.js";
@@ -224,49 +224,13 @@ export function createMcpServer(config: LoadedConfig): Server {
   return server;
 }
 
-// ── Sampling support helpers ─────────────────────────────────
 
-function filterHostSampleParticipants(
-  source: Record<string, HostSampleMeta>,
-  selectedIds: ReadonlySet<string>,
-): Record<string, HostSampleMeta> {
-  const out: Record<string, HostSampleMeta> = {};
-  for (const [id, meta] of Object.entries(source)) {
-    if (selectedIds.has(id)) out[id] = meta;
-  }
-  return out;
-}
-
-/**
- * Confirm the connected MCP host advertised the `sampling` capability if
- * any participants in this run rely on it. Hosts that don't support sampling
- * (Codex CLI, older Cursor builds, smoke-test clients) silently fail or
- * never reply otherwise; failing fast with a clear message is friendlier.
- */
-function ensureSamplingSupported(
-  server: Server,
-  hostSampleParticipants: Record<string, HostSampleMeta>,
-): Error | undefined {
-  const ids = Object.keys(hostSampleParticipants);
-  if (ids.length === 0) return undefined;
-  const caps = server.getClientCapabilities();
-  if (caps?.sampling) return undefined;
-  const hostName = server.getClientVersion()?.name ?? "this MCP host";
-  return new Error(
-    `host-sample participant${ids.length === 1 ? "" : "s"} ${ids
-      .map((id) => `"${id}"`)
-      .join(
-        ", ",
-      )} require${ids.length === 1 ? "s" : ""} the host to support MCP sampling, but ${hostName} did not advertise the \`sampling\` capability. Claude Desktop supports sampling today; Claude Code does not yet (tracking: anthropics/claude-code#1785). Either invoke from a host that advertises sampling, or change the participant${ids.length === 1 ? "" : "s"} to use a configured provider (Anthropic, OpenAI, Groq, etc.).`,
-  );
-}
 
 // ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
 interface DispatchArgs {
   config: LoadedConfig;
-  /** Active MCP server — needed so `sampling/createMessage` can flow back to
-   *  whichever host invoked the tool, for host-sample participants. */
+  /** Active MCP server instance. */
   server: Server;
   /** Panel/preset registry — used by `panel` arg resolution on the generic tool. */
   presets: PresetRegistry;
@@ -306,7 +270,6 @@ async function runGenericConsensus(args: DispatchArgs) {
 
   let selectedParticipants: Participant[];
   let providerByParticipant: Record<string, string>;
-  let hostSampleParticipants: Record<string, HostSampleMeta>;
   let presetDefaultsForOptions: Preset["defaults"] | undefined;
   let judgeSystemPromptForOptions: string | undefined;
 
@@ -327,7 +290,6 @@ async function runGenericConsensus(args: DispatchArgs) {
     }
     selectedParticipants = resolved.participants;
     providerByParticipant = resolved.providerByParticipant;
-    hostSampleParticipants = resolved.hostSampleParticipants;
     presetDefaultsForOptions = panelOverlay.defaults;
     judgeSystemPromptForOptions = panelOverlay.judgeSystemPrompt;
   } else {
@@ -337,11 +299,6 @@ async function runGenericConsensus(args: DispatchArgs) {
     }
     selectedParticipants = generic;
     providerByParticipant = config.providerByParticipant;
-    const selectedIds = new Set(selectedParticipants.map((p) => p.id));
-    hostSampleParticipants = filterHostSampleParticipants(
-      config.hostSampleParticipants,
-      selectedIds,
-    );
     presetDefaultsForOptions = undefined;
     judgeSystemPromptForOptions = undefined;
   }
@@ -349,11 +306,6 @@ async function runGenericConsensus(args: DispatchArgs) {
   const judgeEnabled = input.judge ?? config.defaults.useJudge;
   if (judgeEnabled && !config.judge) {
     return toolError("Judge was requested but the server config does not declare a `judge` entry.");
-  }
-
-  const samplingCheck = ensureSamplingSupported(server, hostSampleParticipants);
-  if (samplingCheck instanceof Error) {
-    return toolError(samplingCheck.message);
   }
 
   const options = buildEngineOptions({
@@ -368,11 +320,9 @@ async function runGenericConsensus(args: DispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createRoutedCaller({
+  const caller = createOpenAICompatibleCaller({
     providers: config.providers,
     providerByParticipant,
-    hostSampleParticipants,
-    server,
   });
 
   const engine = new ConsensusEngine(caller);
@@ -433,10 +383,6 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
     return toolError(resolved.message);
   }
 
-  const samplingCheck = ensureSamplingSupported(server, resolved.hostSampleParticipants);
-  if (samplingCheck instanceof Error) {
-    return toolError(samplingCheck.message);
-  }
 
   const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
   // Preset runs don't *require* a judge — they degrade gracefully to raw panel
@@ -454,11 +400,9 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createRoutedCaller({
+  const caller = createOpenAICompatibleCaller({
     providers: config.providers,
     providerByParticipant: resolved.providerByParticipant,
-    hostSampleParticipants: resolved.hostSampleParticipants,
-    server,
   });
 
   const engine = new ConsensusEngine(caller);

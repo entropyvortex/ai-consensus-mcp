@@ -21,16 +21,9 @@ const ProviderConfigSchema = z.object({
   extraHeaders: z.record(z.string(), z.string()).optional(),
 });
 
-// Participant config supports two kinds:
-//   • "provider"    — backed by an OpenAI-compatible HTTP endpoint declared in
-//                     `providers.<id>` (the only kind shipped before 0.12).
-//   • "host-sample" — answered by the calling MCP host (Claude Code, Cursor,
-//                     etc.) via `sampling/createMessage`. The host owns the
-//                     model — no `provider`/`modelId` needed.
-//
-// Existing configs omit `kind`, which resolves to "provider" for backwards
-// compatibility. The schema is a discriminated union so each kind only carries
-// the fields that are meaningful for it; round-tripping preserves the shape.
+// Participant config (provider-backed only).
+// Existing configs that omit `kind` resolve to "provider" for backwards
+// compatibility.
 
 const ParticipantConfigBaseSchema = z.object({
   id: z.string().min(1),
@@ -44,16 +37,7 @@ const ProviderParticipantConfigSchema = ParticipantConfigBaseSchema.extend({
   modelId: z.string().min(1),
 }).strict();
 
-const HostSampleParticipantConfigSchema = ParticipantConfigBaseSchema.extend({
-  kind: z.literal("host-sample"),
-  /** Optional hint passed to the host as a model preference. */
-  modelHint: z.string().min(1).optional(),
-}).strict();
-
-const ParticipantConfigSchema = z.union([
-  HostSampleParticipantConfigSchema,
-  ProviderParticipantConfigSchema,
-]);
+const ParticipantConfigSchema = ProviderParticipantConfigSchema;
 
 const JudgeConfigSchema = z.object({
   provider: z.string().min(1),
@@ -95,7 +79,6 @@ export type RawConfig = z.infer<typeof RawConfigSchema>;
 export type RawProviderConfig = z.infer<typeof ProviderConfigSchema>;
 export type RawParticipantConfig = z.infer<typeof ParticipantConfigSchema>;
 export type RawProviderParticipantConfig = z.infer<typeof ProviderParticipantConfigSchema>;
-export type RawHostSampleParticipantConfig = z.infer<typeof HostSampleParticipantConfigSchema>;
 export type RawJudgeConfig = z.infer<typeof JudgeConfigSchema>;
 export type RawDefaults = z.infer<typeof DefaultsSchema>;
 
@@ -104,7 +87,6 @@ export {
   ProviderConfigSchema,
   ParticipantConfigSchema,
   ProviderParticipantConfigSchema,
-  HostSampleParticipantConfigSchema,
   JudgeConfigSchema,
   DefaultsSchema,
 };
@@ -137,15 +119,6 @@ export interface ResolvedDefaults {
   useJudge: boolean;
 }
 
-/** Synthetic modelId carried on host-sample participants — surfaced in
- *  engine events ("p1 (host-sample) thinking…") so logs are unambiguous. */
-export const HOST_SAMPLE_MODEL_ID = "host-sample";
-
-export interface HostSampleMeta {
-  /** Optional preference hint forwarded to the host's sampling model picker. */
-  modelHint: string | undefined;
-}
-
 export interface LoadedConfig {
   /** Absolute path of the config file this was loaded from. */
   sourcePath: string;
@@ -153,19 +126,15 @@ export interface LoadedConfig {
   providers: Record<string, ResolvedProvider>;
   /** Fully materialised participants, ready to pass to ConsensusEngine. */
   participants: Participant[];
-  /** Participant id → provider id, used by the adapter to route provider-backed calls.
-   *  Host-sample participants have no entry here. */
+  /** Participant id → provider id (used by the adapter for routing). */
   providerByParticipant: Record<string, string>;
-  /** Participants whose responses come from the calling MCP host via
-   *  `sampling/createMessage` rather than a configured provider. */
-  hostSampleParticipants: Record<string, HostSampleMeta>;
   /** Optional judge. `providerByParticipant["judge"]` is set when present. */
   judge: ResolvedJudge | undefined;
   /** Defaults to apply when the tool input omits a field. */
   defaults: ResolvedDefaults;
   /**
    * Resolved memory-layer config. `enabled === false` skips wiring memory
-   * tools and never touches disk — premortem F10.
+   * tools and never touches disk.
    */
   memory: ResolvedMemoryRuntime;
 }
@@ -235,10 +204,9 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     };
   }
 
-  // Resolve personas + materialize participants
+  // Resolve personas + materialize participants (provider-backed only)
   const participants: Participant[] = [];
   const providerByParticipant: Record<string, string> = {};
-  const hostSampleParticipants: Record<string, HostSampleMeta> = {};
   const participantIds = new Set<string>();
 
   for (const p of raw.participants) {
@@ -256,13 +224,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
       );
     }
 
-    if (p.kind === "host-sample") {
-      participants.push(buildParticipant(p.id, HOST_SAMPLE_MODEL_ID, persona, p.label));
-      hostSampleParticipants[p.id] = { modelHint: p.modelHint };
-      continue;
-    }
-
-    // Provider-backed (default `kind` is "provider").
+    // Provider-backed only (kind defaults to "provider" for backwards compat).
     if (!providers[p.provider]) {
       throw new Error(
         `ai-consensus-mcp: participant "${p.id}" references unknown provider "${p.provider}". Known: ${Object.keys(providers).join(", ") || "(none)"}.`,
@@ -309,7 +271,6 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     providers,
     participants,
     providerByParticipant,
-    hostSampleParticipants,
     judge,
     defaults,
     memory,

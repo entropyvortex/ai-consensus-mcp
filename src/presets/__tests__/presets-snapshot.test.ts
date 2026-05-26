@@ -30,7 +30,7 @@ function makeFullConfig(): LoadedConfig {
     },
     participants,
     providerByParticipant,
-    hostSampleParticipants: {},
+
     memory: {
       enabled: false,
       storageRoot: "/tmp/test-memory",

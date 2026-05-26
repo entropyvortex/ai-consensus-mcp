@@ -27,7 +27,7 @@ function makeNarrowConfig(): LoadedConfig {
       { id: "p_vc", modelId: "model-b", persona: vc },
     ],
     providerByParticipant: { p_pessimist: "test", p_vc: "test" },
-    hostSampleParticipants: {},
+
     memory: {
       enabled: false,
       storageRoot: "/tmp/test-memory",
@@ -63,7 +63,7 @@ function makeFullConfig(): LoadedConfig {
     },
     participants,
     providerByParticipant: Object.fromEntries(participants.map((p) => [p.id, "test"])),
-    hostSampleParticipants: {},
+
     memory: {
       enabled: false,
       storageRoot: "/tmp/test-memory",

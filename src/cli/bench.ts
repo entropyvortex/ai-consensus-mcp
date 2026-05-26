@@ -295,16 +295,7 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-  // Bench mode does not support MCP host-sample participants — there's no
-  // calling host. Fail loudly if any are present rather than silently swap.
-  if (Object.keys(config.hostSampleParticipants).length > 0) {
-    process.stderr.write(
-      `${SERVER_NAME} bench: host-sample participants are not supported in CLI bench mode (${Object.keys(
-        config.hostSampleParticipants,
-      ).join(", ")}). Reconfigure these participants as provider-backed to bench them.\n`,
-    );
-    return 2;
-  }
+
 
   const runnability = checkRunnability(panel, config);
   if (!runnability.runnable) {
