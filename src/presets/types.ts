@@ -114,6 +114,29 @@ export interface PanelOutputShape {
 }
 
 /**
+ * One scoring dimension for a panel-declared quality rubric. Used by the
+ * benchmark's held-out LLM-as-judge evaluator to score consensus and
+ * baseline outputs against the same rubric, blind to which side produced
+ * which output.
+ *
+ * The rubric measures *answer quality* against named criteria — distinct
+ * from self-reported confidence (which is a meta-claim about the model's
+ * own certainty, not about the answer's substance).
+ */
+export interface RubricCriterion {
+  /** Stable kebab-case id; surfaces in JSON reports for downstream tools. */
+  id: string;
+  /**
+   * What a max-point answer looks like for this criterion. The evaluator
+   * sees this verbatim — write it as a directive for the model, not as
+   * end-user prose.
+   */
+  description: string;
+  /** Upper bound of the score for this criterion (typically 5). */
+  maxPoints: number;
+}
+
+/**
  * Optional metadata declaring a panel's purpose and output shape. v2+
  * panels populate this fully so MCP clients can introspect what a panel
  * is for and what its judge synthesis will look like, without parsing
@@ -165,6 +188,13 @@ export interface Preset {
   defaults: PresetDefaults;
   /** Optional task-specific judge system prompt. */
   judgeSystemPrompt?: string;
+  /**
+   * Optional quality rubric. When set, the bench can score consensus and
+   * baseline outputs against these criteria using a held-out evaluator
+   * model — measuring answer quality against named contracts rather than
+   * self-reported confidence.
+   */
+  rubric?: readonly RubricCriterion[];
   /** Phase 3 surface — empty/unused in Phase 1. */
   toolBindings?: readonly ToolBinding[];
   /**

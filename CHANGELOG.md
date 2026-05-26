@@ -5,7 +5,61 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
-_None yet — see [0.12.0] below for the most recent release._
+### Added — held-out rubric evaluator for `bench`
+
+`bench` learned to score answer **quality** with a third, held-out model
+rather than relying on either side's self-reported confidence.
+
+- New CLI flags: `--evaluator-model <id>` and `--evaluator-provider <id>`.
+  When both are set AND the panel declares a `rubric`, the bench scores
+  both the consensus synthesis and the baseline output against the rubric
+  using the evaluator model, blind to which side produced which answer.
+- New preset field: `Preset.rubric?: readonly RubricCriterion[]`. The
+  rubric is panel-declared (because criteria are domain-specific);
+  `architecture_v2` ships a 5-criterion rubric (quantification,
+  single-recommendation, reversibility-weighing, tripwire-specificity,
+  failure-mode-realism). Adding a rubric to another panel is purely
+  additive — no engine change, no breaking change.
+- New bench module: `src/benchmark/rubric.ts`. Builds a structured
+  JSON-emitting prompt for the evaluator, parses with a tolerant
+  bracket-scanning JSON extractor (no regex backtracking), validates
+  with zod, clamps scores into range, and returns a `RubricEvaluation`
+  with `errorMessage` set on any failure path. Never throws — a rubric
+  eval failure is data quality, not a suite-fatal error.
+- New report metrics: `consensusRubricNormalizedMean`,
+  `baselineRubricNormalizedMean`, `consensusBeatsBaselineRubricRate`,
+  `rubricRunsCounted`. Surfaced in both the markdown report (new
+  "Held-out rubric" section + 3 new per-case table columns) and the
+  JSON report.
+- CLI sanity-checks the held-out contract: warns when the evaluator
+  model is the same as the baseline (self-grading) or the judge (same
+  brain producing and grading the consensus output).
+- 16 new tests cover the evaluator end-to-end: happy path, fenced /
+  prose-wrapped JSON, score clamping, missing-criterion handling, all
+  three failure modes (caller throws, unparseable content, schema
+  mismatch). Existing 320 tests pass unchanged. Total: 336/336.
+
+### Changed — upstream parser-contract fix
+
+- Bumped `ai-consensus-core` from `^0.10.0` to `^0.11.1`. The 0.11.1
+  release fixes a silent contract bug where any caller that overrode
+  the default `JUDGE_PERSONA.systemPrompt` (every panel in this repo)
+  caused `extractJudgeConfidence` to fall through to its 50 default —
+  the bench reported judge confidence as μ=50.0, σ=0.0 across every
+  run. With 0.11.1, `buildJudgeSystemPrompt` idempotently appends the
+  `JUDGE_CONFIDENCE: [0-100]` directive, so the parser sees a real
+  value. Judge confidence on a representative 12-run bench now reports
+  μ=66.9, σ=5.2 — the first real distribution this repo has ever produced.
+- No code change in this repo was needed for the symptom to disappear;
+  the dep bump alone removes the artifact. No API change.
+
+### Documentation
+
+- New README section: **"Quality benchmark (held-out evaluator)"** —
+  headline finding (consensus wins 12/12 on `architecture_v2` against
+  a frontier baseline), per-case Δ-rubric table, methodology, exact
+  reproduction command, and honest caveats (cost, sample size,
+  single-panel scope).
 
 ## [0.12.0] — 2026-05-25
 

@@ -70,6 +70,7 @@ function makeConsensusOutcome(
             totalTokens: options.totalTokens,
           }
         : undefined,
+    rubric: undefined,
   };
 }
 
@@ -93,6 +94,7 @@ function makeBaseline(opts: {
           }
         : undefined,
     errorMessage: opts.errorMessage,
+    rubric: undefined,
   };
 }
 

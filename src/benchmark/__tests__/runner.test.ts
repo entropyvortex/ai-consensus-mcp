@@ -22,6 +22,10 @@ interface MockCallerOptions {
   failParticipantIds?: Set<string>;
   failBaseline?: boolean;
   withUsage?: boolean;
+  /** Per-criterion score the rubric evaluator returns. Same score for both sides. */
+  rubricScore?: number;
+  /** If true, the rubric-evaluator returns junk and the eval errors. */
+  rubricEvalFails?: boolean;
 }
 
 function makeMockCaller(opts: MockCallerOptions = {}): ModelCaller {
@@ -39,6 +43,27 @@ function makeMockCaller(opts: MockCallerOptions = {}): ModelCaller {
         content: `Direct baseline answer.\nCONFIDENCE: ${conf}`,
         ...(opts.withUsage
           ? { usage: { inputTokens: 50, outputTokens: 40, totalTokens: 90 } }
+          : {}),
+      };
+    }
+    if (req.participantId === "rubric-evaluator") {
+      if (opts.rubricEvalFails) {
+        return { content: "I refuse to score this." };
+      }
+      const score = opts.rubricScore ?? 3;
+      // Match whatever rubric the panel declared by parsing the criterion
+      // ids out of the system prompt. Keeps the mock panel-agnostic.
+      const ids = Array.from(req.system.matchAll(/"([a-z0-9_-]+)" \(0-/g)).map((m) => m[1]!);
+      return {
+        content: JSON.stringify({
+          scores: ids.map((id) => ({
+            criterion_id: id,
+            score,
+            justification: `mock score for ${id}`,
+          })),
+        }),
+        ...(opts.withUsage
+          ? { usage: { inputTokens: 40, outputTokens: 30, totalTokens: 70 } }
           : {}),
       };
     }
@@ -210,6 +235,76 @@ describe("runSuite — happy path", () => {
     const a = await runSuite(args);
     const b = await runSuite(args);
     expect(a.runs.map((r) => r.randomSeed)).toEqual(b.runs.map((r) => r.randomSeed));
+  });
+});
+
+describe("runSuite — rubric evaluation", () => {
+  it("leaves rubric undefined on both sides when no evaluator is configured", async () => {
+    const report = await runSuite({
+      cases: [SAMPLE_CASES[0]!],
+      panel: ARCHITECTURE_V2_PRESET,
+      participants: makeParticipants(),
+      engineDefaults: { maxRounds: 1 },
+      caller: makeMockCaller(),
+      baselineModelId: "judge-model",
+      runs: 1,
+      baseSeed: 1,
+      // Note: evaluatorModelId omitted — the panel has a rubric, but the
+      // bench was invoked without an evaluator, so the path must short-circuit.
+    });
+    expect(report.runs[0]?.consensus.rubric).toBeUndefined();
+    expect(report.runs[0]?.baseline.rubric).toBeUndefined();
+    expect(report.metrics.consensusRubricNormalizedMean).toBeUndefined();
+    expect(report.metrics.baselineRubricNormalizedMean).toBeUndefined();
+    expect(report.metrics.rubricRunsCounted).toBe(0);
+  });
+
+  it("populates both rubric outcomes and the rubric metrics when the evaluator is configured", async () => {
+    const report = await runSuite({
+      cases: [SAMPLE_CASES[0]!],
+      panel: ARCHITECTURE_V2_PRESET,
+      participants: makeParticipants(),
+      // Judge config is required so the engine produces a synthesis —
+      // the rubric eval has no consensus output to score otherwise.
+      engineDefaults: { maxRounds: 1, judge: { modelId: "judge-model" } },
+      caller: makeMockCaller({ rubricScore: 4 }),
+      baselineModelId: "judge-model",
+      runs: 2,
+      baseSeed: 1,
+      evaluatorModelId: "claude-opus-4-5",
+    });
+    for (const r of report.runs) {
+      expect(r.consensus.rubric?.errorMessage).toBeUndefined();
+      expect(r.baseline.rubric?.errorMessage).toBeUndefined();
+      // ARCHITECTURE_V2_PRESET has 5 criteria of 5 points each → 4/5 each = 80.
+      expect(r.consensus.rubric?.normalized).toBe(80);
+      expect(r.baseline.rubric?.normalized).toBe(80);
+    }
+    expect(report.metrics.rubricRunsCounted).toBe(2);
+    expect(report.metrics.consensusRubricNormalizedMean).toBe(80);
+    expect(report.metrics.baselineRubricNormalizedMean).toBe(80);
+    // Equal scores → consensus is NOT strictly greater on either run.
+    expect(report.metrics.consensusBeatsBaselineRubricRate).toBe(0);
+  });
+
+  it("captures rubric failures into errorMessage without aborting the suite", async () => {
+    const report = await runSuite({
+      cases: [SAMPLE_CASES[0]!],
+      panel: ARCHITECTURE_V2_PRESET,
+      participants: makeParticipants(),
+      engineDefaults: { maxRounds: 1, judge: { modelId: "judge-model" } },
+      caller: makeMockCaller({ rubricEvalFails: true }),
+      baselineModelId: "judge-model",
+      runs: 1,
+      baseSeed: 1,
+      evaluatorModelId: "claude-opus-4-5",
+    });
+    expect(report.runs[0]?.failed).toBe(false); // run itself succeeded
+    expect(report.runs[0]?.consensus.rubric?.errorMessage).toBeDefined();
+    expect(report.runs[0]?.baseline.rubric?.errorMessage).toBeDefined();
+    // Failed evals are excluded from the paired-runs denominator.
+    expect(report.metrics.rubricRunsCounted).toBe(0);
+    expect(report.metrics.consensusBeatsBaselineRubricRate).toBeUndefined();
   });
 });
 
