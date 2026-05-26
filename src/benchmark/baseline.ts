@@ -90,5 +90,6 @@ export async function runBaseline(args: RunBaselineArgs): Promise<BaselineOutcom
     durationMs: completedAt - startedAt,
     usage,
     errorMessage,
+    rubric: undefined,
   };
 }

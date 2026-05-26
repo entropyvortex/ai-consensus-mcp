@@ -15,6 +15,7 @@
 
 import { z } from "zod";
 import type { ConsensusResult, TokenUsage } from "ai-consensus-core";
+import type { RubricEvaluation } from "./rubric.js";
 
 // ── BenchCase (input) ────────────────────────────────────────
 
@@ -93,6 +94,13 @@ export interface ConsensusOutcome {
   judgeConfidence: number | undefined;
   durationMs: number;
   totalUsage: TokenUsage | undefined;
+  /**
+   * Held-out rubric evaluation of the consensus synthesis. Populated only
+   * when the panel declares a `rubric` AND the bench was invoked with an
+   * evaluator model. `undefined` means "not evaluated"; an evaluation with
+   * `errorMessage` set means "tried and failed".
+   */
+  rubric: RubricEvaluation | undefined;
 }
 
 export interface BaselineOutcome {
@@ -104,6 +112,8 @@ export interface BaselineOutcome {
   durationMs: number;
   usage: TokenUsage | undefined;
   errorMessage: string | undefined;
+  /** Held-out rubric evaluation; same activation rule as ConsensusOutcome.rubric. */
+  rubric: RubricEvaluation | undefined;
 }
 
 // ── BenchReport (suite-level aggregation) ────────────────────
@@ -149,6 +159,24 @@ export interface BenchMetrics {
   runsCounted: number;
   /** Total runs attempted. */
   runsAttempted: number;
+  /**
+   * Mean of rubric-normalized scores for the consensus side, across runs
+   * where the held-out evaluator succeeded. `undefined` when no run had a
+   * successful consensus rubric eval (panel has no rubric, or eval was
+   * never invoked, or every eval failed).
+   */
+  consensusRubricNormalizedMean: number | undefined;
+  /** Mean of rubric-normalized scores for the baseline side; same contract. */
+  baselineRubricNormalizedMean: number | undefined;
+  /**
+   * Fraction of runs where the consensus rubric score was strictly greater
+   * than the baseline rubric score. Independent of self-reported confidence —
+   * this is the held-out-judge view of which side answered better. `undefined`
+   * when fewer than 1 run had successful evals on BOTH sides.
+   */
+  consensusBeatsBaselineRubricRate: number | undefined;
+  /** Count of runs where both rubric evaluations succeeded — denominator for the rate above. */
+  rubricRunsCounted: number;
 }
 
 export interface BenchReport {

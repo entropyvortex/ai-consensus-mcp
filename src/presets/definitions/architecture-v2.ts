@@ -120,6 +120,38 @@ export const ARCHITECTURE_V2_PRESET: Preset = {
     "",
     "Do not hedge by recommending two options. Pick one. State your confidence.",
   ].join("\n"),
+  rubric: [
+    {
+      id: "quantification",
+      description:
+        "Does the answer cite load-bearing constraints with units (ms, $/month, headcount, GB/day, QPS, percentiles), or explicitly name an unstated constraint with a proposed value? A 5/5 answer reads like an engineer with a spreadsheet; a 0/5 reads like a vibes essay.",
+      maxPoints: 5,
+    },
+    {
+      id: "single-recommendation",
+      description:
+        "Does the answer commit to a single architecture choice with a dominant reason, rather than hedging between two? A 5/5 answer names the recommended option in one sentence and names the next-best alternative only as the runner-up; a 0/5 presents a balanced menu and refuses to choose.",
+      maxPoints: 5,
+    },
+    {
+      id: "reversibility",
+      description:
+        "Does the answer explicitly weigh reversibility / switching cost — the cost of being wrong about this decision? A 5/5 answer treats reversibility as a first-class column with at least a low/medium/high rating per option and a switching cost estimate; a 0/5 ignores reversibility entirely.",
+      maxPoints: 5,
+    },
+    {
+      id: "tripwire-specificity",
+      description:
+        "Are the conditions that would flip the recommendation named as measurable signals with thresholds (e.g. 'write QPS sustains >5k for 24h', 'P99 latency exceeds 200ms for 1h'), not vague conditions ('if scale grows', 'if reliability becomes a concern')? A 5/5 answer has tripwires you could literally write a Prometheus alert against; a 0/5 has hand-waving.",
+      maxPoints: 5,
+    },
+    {
+      id: "failure-mode-realism",
+      description:
+        "Are failure modes named with concrete trigger conditions, blast radius, and detection latency — not generic risks? A 5/5 answer names specific failure modes a senior on-call engineer would recognise from incidents they've actually worked; a 0/5 lists abstract risks ('complexity', 'scaling issues') with no shape.",
+      maxPoints: 5,
+    },
+  ],
   meta: {
     version: "2.0.0",
     rationale: [
