@@ -224,8 +224,6 @@ export function createMcpServer(config: LoadedConfig): Server {
   return server;
 }
 
-
-
 // ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
 interface DispatchArgs {
@@ -241,7 +239,7 @@ interface DispatchArgs {
 }
 
 async function runGenericConsensus(args: DispatchArgs) {
-  const { config, server, request, extra } = args;
+  const { config, request, extra } = args;
   const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
   if (!parsed.success) {
     return toolError(formatZodIssues(parsed.error));
@@ -355,7 +353,7 @@ interface PresetDispatchArgs extends DispatchArgs {
 }
 
 async function runPresetConsensus(args: PresetDispatchArgs) {
-  const { preset, config, server, request, extra } = args;
+  const { preset, config, request, extra } = args;
 
   const schema: PresetInputZodSchema = buildPresetZodSchema(preset);
   const parsed = schema.safeParse(request.params.arguments ?? {});
@@ -382,7 +380,6 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
   if (resolved instanceof Error) {
     return toolError(resolved.message);
   }
-
 
   const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
   // Preset runs don't *require* a judge — they degrade gracefully to raw panel
@@ -554,21 +551,24 @@ function buildGenericToolDescription(config: LoadedConfig): string {
     ? `  Judge: ${config.judge.modelId} (provider: ${config.judge.providerId})\n`
     : "  Judge: none configured\n";
   return [
-    "Run the Consensus Validation Protocol over the configured panel of models.",
+    "Run the Consensus Validation Protocol (CVP) — a multi-model debate with",
+    "confidence-weighted scoring, disagreement detection, and optional judge synthesis.",
     "",
-    "Each participant adopts one of seven structured personas (Risk Analyst,",
-    "First-Principles Engineer, VC Specialist, Scientific Skeptic, Optimistic",
-    "Futurist, Devil's Advocate, Domain Expert). Round 1 is blind and parallel;",
-    "later rounds are sequential with full history. Each response ends with a",
-    "CONFIDENCE: 0-100 marker. The consensus score is avg − 0.5·stddev over those.",
+    "Use this generic tool when you need full control over engine knobs",
+    "(maxRounds, participantIds, judge, etc.) or a custom prompt shape.",
+    "For most real tasks, prefer a dedicated `consensus_<panel>` tool — each",
+    "panel ships tuned personas, rounds, and output structure (architecture,",
+    "security red-team, code review, decision support, incident postmortem, etc.).",
+    "Set `panel` to target a panel via this generic interface when needed.",
+    "",
+    "Protocol: Round 1 is blind and parallel; later rounds are sequential with",
+    "full history. Each response ends with CONFIDENCE: 0-100. Consensus score",
+    "is avg − 0.5·stddev. Expect higher cost and latency than a single model call.",
     "",
     "Configured participants:",
     ...participantLines,
     "",
     judgeLine.trimEnd(),
-    "",
-    "For task-specific defaults (code review, architecture debates, etc.),",
-    "see the dedicated `consensus_<preset>` tools.",
   ].join("\n");
 }
 
@@ -1123,5 +1123,6 @@ function ageLabel(days: number): string {
 }
 
 function escapeTablePipe(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  // Backslashes first so pipe escapes are not double-processed.
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }

@@ -4,6 +4,10 @@ Long-form reference for getting the server registered with each MCP host.
 The README's "Install in 30 seconds" handles the common path; this doc
 covers the edge cases.
 
+For **remote deployment** (Grok custom connectors, public Streamable HTTP),
+see the README section **"Using as a Grok Custom Connector"** and
+[examples/cloudflare/README.md](../examples/cloudflare/README.md).
+
 ## Prerequisites
 
 - Node.js ≥ 20 (the npm package targets `engines.node: >=20`).
@@ -160,6 +164,19 @@ npm install && npm run build
 node scripts/smoke-stdio.mjs
 # → smoke ok — server=ai-consensus-mcp@…, tools=[consensus, consensus_code_review, …]
 ```
+
+### Remote HTTP (Grok custom connector)
+
+```bash
+export GROK_API_KEY=... ANTHROPIC_API_KEY=...
+export CONSENSUS_HTTP_API_KEY="$(openssl rand -base64 32)"
+ai-consensus-mcp serve --http --config /abs/path/consensus.config.json \
+  --host 0.0.0.0 --port 3000 --path /mcp
+```
+
+Register `https://<your-host>/mcp` at [grok.com/connectors](https://grok.com/connectors).
+Provider keys and `CONSENSUS_HTTP_API_KEY` must be set in the **server environment** before launch.
+Callers authenticate with `Authorization: Bearer <CONSENSUS_HTTP_API_KEY>` (or `X-Consensus-Api-Key`).
 
 ## Uninstalling
 
