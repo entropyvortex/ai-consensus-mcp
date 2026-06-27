@@ -39,6 +39,10 @@ Every panel is exposed as its own MCP tool — `consensus_<id>` — and can
 also be invoked via the generic `consensus` tool's `panel` argument
 (see [Using a panel](#using-a-panel) below).
 
+When deployed as a **remote MCP server** (Streamable HTTP / Grok custom connector),
+the same panel tools are advertised with full descriptions — Grok discovers
+them automatically after connector registration.
+
 ## Per-panel reference
 
 Every v2+ panel ships with a structured `meta.expectedOutputShape` that

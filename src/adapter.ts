@@ -7,12 +7,7 @@
 // Bearer-auth, SSE-streaming adapter covers the whole surface and
 // keeps this package dependency-light (no provider SDKs).
 
-import type {
-  ModelCaller,
-  ModelCallRequest,
-  ModelCallResponse,
-  TokenUsage,
-} from "ai-consensus-core";
+import type { ModelCaller, TokenUsage } from "ai-consensus-core";
 import type { ResolvedProvider } from "./config.js";
 
 /**

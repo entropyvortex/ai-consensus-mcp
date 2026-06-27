@@ -155,38 +155,13 @@ export interface ResolvedMemoryRuntime {
 
 // ── Loader ───────────────────────────────────────────────────
 
-export async function loadConfig(path: string): Promise<LoadedConfig> {
-  const absolute = resolvePath(path);
-  let text: string;
-  try {
-    text = await readFile(absolute, "utf8");
-  } catch (err) {
-    throw new Error(
-      `ai-consensus-mcp: could not read config at ${absolute}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(
-      `ai-consensus-mcp: config at ${absolute} is not valid JSON: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-
-  const validated = RawConfigSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new Error(
-      `ai-consensus-mcp: config at ${absolute} failed validation:\n${formatZodError(validated.error)}`,
-    );
-  }
-  const raw = validated.data;
-
+/**
+ * Parse and validate a raw config object into a fully-resolved `LoadedConfig`.
+ * Does not read from disk — use `loadConfig` for file-based loading, or call
+ * this directly in serverless runtimes (e.g. Cloudflare Workers) that receive
+ * config from an environment variable or KV store.
+ */
+export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): LoadedConfig {
   // Resolve providers (env var → api key)
   const providers: Record<string, ResolvedProvider> = {};
   for (const [id, cfg] of Object.entries(raw.providers)) {
@@ -267,7 +242,7 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
   const memory = resolveMemoryRuntime(raw.memory);
 
   return {
-    sourcePath: absolute,
+    sourcePath,
     providers,
     participants,
     providerByParticipant,
@@ -275,6 +250,56 @@ export async function loadConfig(path: string): Promise<LoadedConfig> {
     defaults,
     memory,
   };
+}
+
+function parseRawConfigJson(text: string, label: string): RawConfig {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `ai-consensus-mcp: config at ${label} is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const validated = RawConfigSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(
+      `ai-consensus-mcp: config at ${label} failed validation:\n${formatZodError(validated.error)}`,
+    );
+  }
+  return validated.data;
+}
+
+export async function loadConfig(path: string): Promise<LoadedConfig> {
+  const absolute = resolvePath(path);
+  let text: string;
+  try {
+    text = await readFile(absolute, "utf8");
+  } catch (err) {
+    throw new Error(
+      `ai-consensus-mcp: could not read config at ${absolute}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  const raw = parseRawConfigJson(text, absolute);
+  return resolveConfigFromRaw(raw, absolute);
+}
+
+/**
+ * Load config from a JSON string (e.g. `CONSENSUS_CONFIG_JSON` in Workers).
+ * `sourceLabel` is recorded as `LoadedConfig.sourcePath` for logging only.
+ */
+export function loadConfigFromJson(
+  text: string,
+  sourceLabel = "CONSENSUS_CONFIG_JSON",
+): LoadedConfig {
+  const raw = parseRawConfigJson(text, sourceLabel);
+  return resolveConfigFromRaw(raw, sourceLabel);
 }
 
 /**

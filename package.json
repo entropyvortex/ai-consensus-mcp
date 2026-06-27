@@ -1,7 +1,7 @@
 {
   "name": "ai-consensus-mcp",
   "version": "0.12.0",
-  "description": "Stdio MCP server exposing the Consensus Validation Protocol as a single `consensus` tool. Thin wrapper over ai-consensus-core.",
+  "description": "MCP server exposing the Consensus Validation Protocol — stdio for local hosts (Cursor, Claude Code) and stateless Streamable HTTP for remote clients (Grok custom connectors). Thin wrapper over ai-consensus-core.",
   "keywords": [
     "mcp",
     "modelcontextprotocol",
@@ -27,6 +27,16 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "import": "./dist/http/index.js"
+    }
+  },
   "bin": {
     "ai-consensus-mcp": "./dist/index.js"
   },
@@ -48,10 +58,13 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:smoke": "node scripts/smoke-stdio.mjs",
+    "serve:http": "node dist/index.js serve --http",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage",
     "clean": "rm -rf dist coverage *.tsbuildinfo",
     "start": "node dist/index.js",
-    "prepublishOnly": "npm run clean && npm run build && npm run test"
+    "prepublishOnly": "npm run clean && npm run build && npm run test",
+    "deploy:cloudflare": "node scripts/assert-wrangler-free-tier.mjs && wrangler deploy",
+    "preview:cloudflare": "wrangler dev"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.2",
@@ -67,7 +80,8 @@
     "prettier": "^3.8.3",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.59.1",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.105.0"
   },
   "engines": {
     "node": ">=20"

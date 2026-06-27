@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, readRawConfig, writeRawConfig } from "../config.js";
+import {
+  loadConfig,
+  loadConfigFromJson,
+  readRawConfig,
+  resolveConfigFromRaw,
+  writeRawConfig,
+} from "../config.js";
 import type { RawConfig } from "../config.js";
 
 let dir: string;
@@ -180,7 +186,6 @@ describe("loadConfig", () => {
     expect(risk?.persona.name).toBe("Risk Analyst");
     expect(risk?.persona.systemPrompt.length).toBeGreaterThan(50);
   });
-
 });
 
 describe("readRawConfig / writeRawConfig", () => {
@@ -241,5 +246,40 @@ describe("readRawConfig / writeRawConfig", () => {
         participants: [{ id: "a", provider: "x", modelId: "m", personaId: "pessimist" }],
       }),
     ).rejects.toThrow(/refusing to write invalid config/);
+  });
+});
+
+describe("resolveConfigFromRaw / loadConfigFromJson", () => {
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-inline-"));
+    vi.stubEnv("TEST_ANTHROPIC_KEY", "test-anthropic");
+    vi.stubEnv("TEST_OPENAI_KEY", "test-openai");
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("resolveConfigFromRaw materialises the same shape as loadConfig", async () => {
+    const path = await writeConfig(VALID_CONFIG);
+    const fromFile = await loadConfig(path);
+    const fromRaw = resolveConfigFromRaw(
+      {
+        providers: VALID_CONFIG.providers,
+        participants: VALID_CONFIG.participants,
+        judge: VALID_CONFIG.judge,
+      },
+      "inline-test",
+    );
+    expect(fromRaw.participants).toHaveLength(fromFile.participants.length);
+    expect(fromRaw.providers).toEqual(fromFile.providers);
+    expect(fromRaw.sourcePath).toBe("inline-test");
+  });
+
+  it("loadConfigFromJson parses inline JSON for serverless deploys", () => {
+    const loaded = loadConfigFromJson(JSON.stringify(VALID_CONFIG), "env:CONSENSUS_CONFIG_JSON");
+    expect(loaded.participants).toHaveLength(2);
+    expect(loaded.sourcePath).toBe("env:CONSENSUS_CONFIG_JSON");
   });
 });

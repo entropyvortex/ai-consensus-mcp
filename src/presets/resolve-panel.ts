@@ -149,4 +149,7 @@ function buildMissingError(
   );
 }
 
-type ConfiguredEntry = { participant: Participant; providerId: string };
+interface ConfiguredEntry {
+  participant: Participant;
+  providerId: string;
+}

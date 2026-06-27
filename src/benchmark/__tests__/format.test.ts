@@ -232,6 +232,14 @@ describe("formatReportMarkdown — section contract", () => {
     expect(md).toMatch(/FAILED.*network down/);
   });
 
+  it("escapes backslashes and pipes in failed-run error messages so the table stays valid", () => {
+    const r = makeMinimalReport();
+    r.runs[0]!.failed = true;
+    r.runs[0]!.errorMessage = String.raw`C:\temp\err|broken`;
+    const md = formatReportMarkdown(r);
+    expect(md).toContain(String.raw`_FAILED: C:\\temp\\err\|broken_`);
+  });
+
   it("falls back gracefully when no judge confidence is available", () => {
     const r = makeMinimalReport();
     r.metrics.judgeConfidenceMean = undefined;

@@ -42,3 +42,4 @@ jobs:
       # without any provider API keys.
       - run: npm run build
       - run: npm run test:smoke
+      - run: node scripts/assert-wrangler-free-tier.mjs
