@@ -59,7 +59,7 @@ export default {
       const handler = createHttpHandler(config, { mcpPath, enableHealth: true, auth });
       return await handler(request);
     } catch (err) {
-      console.error("ai-consensus-mcp worker error:", err);
+      console.error("ai-consensus-mcp worker error");
       return new Response(
         JSON.stringify({
           jsonrpc: "2.0",
