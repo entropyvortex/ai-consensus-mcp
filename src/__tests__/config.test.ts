@@ -180,7 +180,6 @@ describe("loadConfig", () => {
     expect(risk?.persona.name).toBe("Risk Analyst");
     expect(risk?.persona.systemPrompt.length).toBeGreaterThan(50);
   });
-
 });
 
 describe("readRawConfig / writeRawConfig", () => {

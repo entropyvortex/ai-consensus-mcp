@@ -319,14 +319,7 @@ async function runMainMenu(initial: RawConfig, path: string, isNew: boolean): Pr
 }
 
 type MenuAction =
-  | "providers"
-  | "participants"
-  | "judge"
-  | "defaults"
-  | "view"
-  | "validate"
-  | "save"
-  | "discard";
+  "providers" | "participants" | "judge" | "defaults" | "view" | "validate" | "save" | "discard";
 
 function configSummary(c: RawConfig): string {
   const providerCount = Object.keys(c.providers).length;

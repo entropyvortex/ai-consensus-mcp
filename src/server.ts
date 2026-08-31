@@ -224,8 +224,6 @@ export function createMcpServer(config: LoadedConfig): Server {
   return server;
 }
 
-
-
 // ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
 interface DispatchArgs {
@@ -382,7 +380,6 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
   if (resolved instanceof Error) {
     return toolError(resolved.message);
   }
-
 
   const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
   // Preset runs don't *require* a judge — they degrade gracefully to raw panel
