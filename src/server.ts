@@ -241,7 +241,7 @@ interface DispatchArgs {
 }
 
 async function runGenericConsensus(args: DispatchArgs) {
-  const { config, server, request, extra } = args;
+  const { config, request, extra } = args;
   const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
   if (!parsed.success) {
     return toolError(formatZodIssues(parsed.error));
@@ -355,7 +355,7 @@ interface PresetDispatchArgs extends DispatchArgs {
 }
 
 async function runPresetConsensus(args: PresetDispatchArgs) {
-  const { preset, config, server, request, extra } = args;
+  const { preset, config, request, extra } = args;
 
   const schema: PresetInputZodSchema = buildPresetZodSchema(preset);
   const parsed = schema.safeParse(request.params.arguments ?? {});
