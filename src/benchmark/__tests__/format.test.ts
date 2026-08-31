@@ -232,6 +232,14 @@ describe("formatReportMarkdown — section contract", () => {
     expect(md).toMatch(/FAILED.*network down/);
   });
 
+  it("escapes backslash, pipe, and newlines in failed-run error messages", () => {
+    const r = makeMinimalReport();
+    r.runs[0]!.failed = true;
+    r.runs[0]!.errorMessage = "a\\b|c\nd";
+    const md = formatReportMarkdown(r);
+    expect(md).toContain("_FAILED: a\\\\b\\|c d_");
+  });
+
   it("falls back gracefully when no judge confidence is available", () => {
     const r = makeMinimalReport();
     r.metrics.judgeConfidenceMean = undefined;

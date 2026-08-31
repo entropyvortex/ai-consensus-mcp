@@ -235,5 +235,5 @@ function shortStopReason(s: string): string {
 }
 
 function escapeTable(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
