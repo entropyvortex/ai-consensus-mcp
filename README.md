@@ -26,16 +26,17 @@ Restart your host. The `consensus` tool and 13 expert panels appear in autocompl
 
 In the most rigorous evaluation to date (architecture_v2 panel, 4 held-out cases, 3 deterministic runs each, seed=42, external judge model never involved in the debate):
 
-| Metric (held-out rubric, blind)          | Consensus | Single-Model Baseline | Δ      |
-|------------------------------------------|-----------|-----------------------|--------|
-| Average rubric score (0-100)             | **83.3**  | 48.0                  | **+35.3** |
-| Wins (external judge, 12/12 runs)        | **12**    | 0                     | **100%**  |
+| Metric (held-out rubric, blind)   | Consensus | Single-Model Baseline | Δ         |
+| --------------------------------- | --------- | --------------------- | --------- |
+| Average rubric score (0-100)      | **83.3**  | 48.0                  | **+35.3** |
+| Wins (external judge, 12/12 runs) | **12**    | 0                     | **100%**  |
 
 The panel won on **every single run** against the identical model used as a strong single-shot baseline. The gap was largest on the case that single-model prompting handled worst (+51 points).
 
 Self-reported confidence told the opposite story: consensus runs averaged **lower** confidence (60.0) than the baseline (75.4). The external judge still preferred the consensus output every time.
 
 ### Why this matters
+
 - **+35 rubric points** on a 5-criterion architecture rubric (quantification, single recommendation, reversibility weighing, tripwire specificity, failure-mode realism).
 - The baseline repeatedly missed reversibility analysis and concrete tripwires. The panel surfaced them consistently.
 - This is not "more opinions = better." This is a specific protocol (blind round 1 → full-visibility debate → confidence-weighted scoring + structured judge synthesis) beating a strong frontier model at the same task.
@@ -52,9 +53,10 @@ The same harness exists for code review, security red-teaming, decision-making, 
 **Reproduce the exact numbers above** with the command in the current repo (requires Grok + Anthropic keys for the evaluator). Raw data lives in the repo under `bench-*.json` artifacts.
 
 **Honest caveats** (we ship these in the output):
+
 - N=12 is small but the direction was 12/12 with a 35-point gap. Reproducible with the seed.
 - Real cost: ~40× tokens and 20× wall time vs one baseline call. For high-stakes architecture or security decisions this is cheap insurance. For routine refactors, single-model is usually fine.
-- Self-reported confidence is a poor quality signal. The panel often surfaces *more* uncertainty while producing better answers.
+- Self-reported confidence is a poor quality signal. The panel often surfaces _more_ uncertainty while producing better answers.
 
 The benchmark CLI and held-out rubric evaluator ship with the package. This is not marketing copy — it's an executable claim you can run yourself.
 
@@ -95,11 +97,19 @@ Manual example (minimal):
 {
   "providers": {
     "xai": { "baseUrl": "https://api.x.ai/v1", "apiKeyEnv": "GROK_API_KEY" },
-    "anthropic": { "baseUrl": "https://api.anthropic.com/v1", "apiKeyEnv": "CONSENSUS_ANTHROPIC_API_KEY" }
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com/v1",
+      "apiKeyEnv": "CONSENSUS_ANTHROPIC_API_KEY"
+    }
   },
   "participants": [
     { "id": "grok", "provider": "xai", "modelId": "grok-4", "personaId": "pessimist" },
-    { "id": "domain", "provider": "anthropic", "modelId": "claude-sonnet-4-6", "personaId": "domain-expert" }
+    {
+      "id": "domain",
+      "provider": "anthropic",
+      "modelId": "claude-sonnet-4-6",
+      "personaId": "domain-expert"
+    }
   ],
   "judge": { "provider": "xai", "modelId": "grok-4" }
 }
@@ -127,14 +137,15 @@ When this participant's turn arrives, the MCP host is asked to answer in charact
 ```jsonc
 {
   "prompt": "Should we adopt event sourcing for the new billing ledger?",
-  "panel": "architecture_v2",           // optional but recommended for real work
+  "panel": "architecture_v2", // optional but recommended for real work
   "maxRounds": 4,
   "judge": true,
-  "randomSeed": 42                      // for deterministic replay
+  "randomSeed": 42, // for deterministic replay
 }
 ```
 
 **Output** on every successful call:
+
 1. Human-readable markdown summary (final score, per-round table, participant responses, judge synthesis).
 2. `structuredContent`: the full typed `ConsensusResult` for programmatic use.
 
@@ -149,6 +160,7 @@ Presets (e.g. `consensus_architecture_v2`, `consensus_security_redteam`) are reg
 Set `"memory": { "enabled": true }` in your config.
 
 Three new tools become available:
+
 - `consensus_recall` — keyword search with matched fragments
 - `consensus_project_memory` — full project history
 - `consensus_what_we_decided` — distilled prior conclusions on a topic

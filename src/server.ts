@@ -224,8 +224,6 @@ export function createMcpServer(config: LoadedConfig): Server {
   return server;
 }
 
-
-
 // ── Generic `consensus` dispatch (unchanged behaviour) ───────
 
 interface DispatchArgs {
@@ -241,7 +239,7 @@ interface DispatchArgs {
 }
 
 async function runGenericConsensus(args: DispatchArgs) {
-  const { config, server, request, extra } = args;
+  const { config, request, extra } = args;
   const parsed = ConsensusInputSchema.safeParse(request.params.arguments ?? {});
   if (!parsed.success) {
     return toolError(formatZodIssues(parsed.error));
@@ -355,7 +353,7 @@ interface PresetDispatchArgs extends DispatchArgs {
 }
 
 async function runPresetConsensus(args: PresetDispatchArgs) {
-  const { preset, config, server, request, extra } = args;
+  const { preset, config, request, extra } = args;
 
   const schema: PresetInputZodSchema = buildPresetZodSchema(preset);
   const parsed = schema.safeParse(request.params.arguments ?? {});
@@ -382,7 +380,6 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
   if (resolved instanceof Error) {
     return toolError(resolved.message);
   }
-
 
   const judgeEnabled = (parsedInput["judge"] as boolean | undefined) ?? config.defaults.useJudge;
   // Preset runs don't *require* a judge — they degrade gracefully to raw panel
@@ -1123,5 +1120,5 @@ function ageLabel(days: number): string {
 }
 
 function escapeTablePipe(s: string): string {
-  return s.replace(/\|/g, "\\|").replace(/\n/g, " ");
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }

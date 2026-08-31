@@ -295,8 +295,6 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
-
-
   const runnability = checkRunnability(panel, config);
   if (!runnability.runnable) {
     process.stderr.write(

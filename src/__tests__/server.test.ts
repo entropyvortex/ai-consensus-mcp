@@ -351,5 +351,4 @@ describe("createMcpServer — input validation via tool calls", () => {
     expect(content[0]?.text ?? "").toMatch(/invalid input/i);
     await env.close();
   });
-
 });
