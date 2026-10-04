@@ -62,7 +62,9 @@ function extractPresentedSecret(headers: HttpAuthHeaders): string | undefined {
 
 // Per-process random key: the MACs below are only ever compared with each
 // other in memory, never stored or sent, so the key never needs to persist.
-const COMPARE_KEY = randomBytes(32);
+// Created on first use: Workers forbid generating random values at global
+// scope (outside a request), and the deploy validation fails if we do.
+let compareKey: Buffer | undefined;
 
 /**
  * Constant-time comparison that leaks neither content nor length: both sides
@@ -71,8 +73,9 @@ const COMPARE_KEY = randomBytes(32);
  * endpoint key is a high-entropy bearer secret, so no slow KDF is needed.
  */
 function timingSafeSecretEqual(a: string, b: string): boolean {
-  const aTag = createHmac("sha256", COMPARE_KEY).update(a, "utf8").digest();
-  const bTag = createHmac("sha256", COMPARE_KEY).update(b, "utf8").digest();
+  compareKey ??= randomBytes(32);
+  const aTag = createHmac("sha256", compareKey).update(a, "utf8").digest();
+  const bTag = createHmac("sha256", compareKey).update(b, "utf8").digest();
   return timingSafeEqual(aTag, bTag);
 }
 
