@@ -228,6 +228,20 @@ Manual example (minimal):
 }
 ```
 
+## Subscription CLI seats
+
+The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"` or `"driver": "claude"` to seat a signed-in CLI instead of a metered API key. The config wizard can add those two drivers. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`.
+
+Each CLI call is a text oracle: a fresh temp directory, an allowlisted child environment (API keys are not copied), and a 120s timeout. Claude denies built-in tools (`--tools ""` and `--restricted`). Grok denies subagents (`--no-subagents`) and web search (`--disable-web-search`) only. Grok's `--disallowed-tools` and `--deny` exist, but `--help` does not list tool names, so this version does not pass a guessed denylist. Other Grok tools are an accepted residual. `~/.grok/config.toml` can still enable tools; there is no executed flag that ignores that file. Writes outside the temp directory are not detected.
+
+Codex is not a working seat. `driver: "codex"` is refused at resolve until `codex exec --help` shows `--sandbox read-only` and a non-interactive approval of `never`. There is no spawn path.
+
+Cloudflare Workers reject any CLI provider when the config is resolved. The error names the provider and tells you to run `ai-consensus-mcp serve` on a machine with the CLI installed. Do not put CLI providers in `CONSENSUS_CONFIG_JSON`. An HTTP-only Worker config is unchanged. A remote connector cannot see a local `grok login`.
+
+Sizing uses an assumed 30 second median call (an assumption, not a measurement) and `cliMaxInFlight: 2`. Three participants, `maxRounds: 4`, and a judge are 13 calls, about 6 minutes. Early stop after round 2 is 7 calls, about 3 minutes. If every call hits the 120 second timeout those become about 24 minutes and about 12 minutes. The engine default `maxRounds` stays 4. [`consensus.config.subscription.example.json`](./consensus.config.subscription.example.json) sets `maxRounds: 2` and `cliMaxInFlight: 2` and seats grok, claude, and one HTTP provider. It does not seat Codex. HTTP panels are not queued behind the CLI gate.
+
+`bench` does not require a CLI and does not refuse to run when one is configured. Its stderr estimate is `cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)`, an upper bound when early-stop fires. If any of those providers is CLI, stderr adds a subscription warning. A CLI judge is also the default baseline, and a CLI rubric evaluator is another spawn. An HTTP-only config never takes that warning.
+
 ### Host-sample participants (the calling agent joins the debate)
 
 ```json

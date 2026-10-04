@@ -111,9 +111,17 @@ Optional:
   -q, --quiet                  Suppress per-run progress on stderr.
   -h, --help                   Show this help.
 
-Bench loads providers from your config and runs real LLM calls. Cost is
-proportional to (case_count × runs × (panel_size + 1)). Inspect the
-estimate the CLI prints before confirming.
+Bench loads providers from your config and runs real LLM calls. The stderr
+estimate is cases × runs × ((participants × maxRounds + judge) + baseline +
+rubricCalls). That figure is an upper bound when early-stop fires. Inspect
+it before confirming.
+
+CLI providers spawn local processes, count against subscription rate limits,
+and are not required. An HTTP config never invokes them. Bench does not
+refuse to run when a CLI provider is seated. --quick does not skip a CLI
+seat that the panel resolved. A CLI judge is also the default baseline
+(another spawn per case), and a CLI rubric evaluator is another spawn per
+rubric call.
 
 Determinism:
   Round-ordering and per-run RNG are seeded from --seed (defaults to
@@ -477,9 +485,7 @@ export async function runBench(argv: readonly string[]): Promise<number> {
   }
 
   const baseSeed = parsed.baseSeed ?? (parsed.quick ? QUICK_DEFAULT_SEED : Date.now());
-  const perRunRubricCalls = evaluatorModelId ? 2 : 0;
-  const totalCalls =
-    cases.length * parsed.runs * (resolved.participants.length + 1 + perRunRubricCalls);
+  const rubricCalls = evaluatorModelId ? 2 : 0;
 
   if (!parsed.quiet) {
     const evalSuffix = evaluatorModelId
@@ -488,11 +494,24 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     process.stderr.write(
       `${SERVER_NAME} bench: panel="${panel.id}", cases=${cases.length}, runs=${parsed.runs}, baseline=${baselineModelId} (${baselineProviderId})${evalSuffix}, seed=${baseSeed}${parsed.quick ? " (quick mode)" : ""}\n`,
     );
-    const explainer = evaluatorModelId
-      ? "cases × runs × (panel + baseline + 2 rubric evals)"
-      : "cases × runs × (panel + baseline)";
+    // Informational only. Does not change the exit code. HTTP-only omits the warning.
     process.stderr.write(
-      `${SERVER_NAME} bench: expected ≈${totalCalls} provider calls (${explainer}).\n`,
+      formatBenchCallEstimate({
+        cases: cases.length,
+        runs: parsed.runs,
+        participants: resolved.participants.length,
+        panelMaxRounds: panel.defaults.maxRounds,
+        configMaxRounds: config.defaults.maxRounds,
+        judgeCalls: config.defaults.useJudge && config.judge ? 1 : 0,
+        rubricCalls,
+        providers: config.providers,
+        participantProviderIds: resolved.participants.map(
+          (participant) => resolved.providerByParticipant[participant.id],
+        ),
+        judgeProviderId: config.judge?.providerId,
+        baselineProviderId,
+        evaluatorProviderId,
+      }),
     );
   }
 
@@ -614,6 +633,87 @@ function pickB<K extends string>(
       return;
     }
   }
+}
+
+/**
+ * Panel maxRounds wins, then config, then the engine default of 4.
+ * Early stop can only make the real total smaller.
+ */
+export function formatBenchCallEstimate(input: {
+  cases: number;
+  runs: number;
+  participants: number;
+  panelMaxRounds: number | undefined;
+  configMaxRounds: number | undefined;
+  judgeCalls: number;
+  rubricCalls: number;
+  providers: Readonly<Record<string, { transport: string }>>;
+  participantProviderIds: readonly (string | undefined)[];
+  judgeProviderId: string | undefined;
+  baselineProviderId: string;
+  evaluatorProviderId: string | undefined;
+}): string {
+  const maxRounds = input.panelMaxRounds ?? input.configMaxRounds ?? 4;
+  const estimate = benchProviderCallEstimate({
+    cases: input.cases,
+    runs: input.runs,
+    participants: input.participants,
+    maxRounds,
+    judge: input.judgeCalls,
+    rubricCalls: input.rubricCalls,
+  });
+  const providerIds = input.participantProviderIds.filter((id): id is string => id !== undefined);
+  if (input.judgeCalls > 0 && input.judgeProviderId) providerIds.push(input.judgeProviderId);
+  providerIds.push(input.baselineProviderId);
+  if (input.rubricCalls > 0 && input.evaluatorProviderId) {
+    providerIds.push(input.evaluatorProviderId);
+  }
+  const note = benchSubscriptionWarning(input.providers, providerIds);
+  return (
+    `${SERVER_NAME} bench: expected ≈${estimate.total} provider calls (${estimate.explainer}). Upper bound when early-stop fires.\n` +
+    note
+  );
+}
+
+/**
+ * Stderr call estimate. `baseline` is one single-model call per run.
+ * `judge` is 1 when the engine will call the judge, else 0.
+ * `rubricCalls` is 2 when a held-out evaluator is active, else 0.
+ * Early stop can only reduce the real total, so this is an upper bound.
+ */
+export function benchProviderCallEstimate(input: {
+  cases: number;
+  runs: number;
+  participants: number;
+  maxRounds: number;
+  judge: number;
+  rubricCalls: number;
+}): { total: number; explainer: string } {
+  const baseline = 1;
+  const perRun = input.participants * input.maxRounds + input.judge + baseline + input.rubricCalls;
+  return {
+    total: input.cases * input.runs * perRun,
+    explainer: "cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)",
+  };
+}
+
+/**
+ * Warning when any provider counted in the estimate (participants, judge,
+ * baseline, or rubric evaluator) is transport cli. Empty for HTTP-only,
+ * which must not take the CLI branch. The caller still runs the suite.
+ */
+export function benchSubscriptionWarning(
+  providers: Readonly<Record<string, { transport: string }>>,
+  providerIds: readonly string[],
+): string {
+  const hitsCli = providerIds.some((id) => providers[id]?.transport === "cli");
+  if (!hitsCli) return "";
+  return (
+    `${SERVER_NAME} bench: subscription warning: a participant, judge, baseline, or rubric evaluator uses transport cli. ` +
+    "Those calls spawn a local process and count against the subscription rate limit. " +
+    "Bench does not refuse to run and does not require a CLI. " +
+    "HTTP-only configs do not take this path. --quick does not skip a CLI seat the panel resolved.\n"
+  );
 }
 
 function formatPanelList(): string {

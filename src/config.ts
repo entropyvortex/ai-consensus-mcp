@@ -274,8 +274,8 @@ export interface ResolveConfigOptions {
 }
 
 /**
- * True when any raw provider uses the CLI transport. The wizard uses this
- * to refuse the HTTP edit form before it can rewrite a subscription seat.
+ * True when any raw provider uses the CLI transport. The wizard routes those
+ * ids to the CLI form and does not open the HTTP form for them.
  */
 export function configHasCliProvider(raw: RawConfig): boolean {
   return Object.values(raw.providers).some((provider) => provider.transport === "cli");

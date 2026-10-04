@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — subscription CLI wizard, example, and bench estimate
+
+- The config wizard can add and edit `grok` and `claude` subscription providers. The HTTP form is never opened for a `transport: "cli"` id, so a save cannot rewrite that block into `baseUrl` + `apiKeyEnv`. Codex is not offered; that driver stays refused until `codex exec --help` matches.
+- `consensus.config.subscription.example.json` ships in the npm `files` list. It is a mixed panel (`maxRounds: 2`, `cliMaxInFlight: 2`) with grok, claude, and one HTTP provider.
+- Bench stderr estimates `cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)`, an upper bound when early-stop fires, and warns when a counted provider is CLI. Bench still runs. HTTP-only configs do not take that branch.
+- `ResolvedProvider` remains an internal type, not a stable plugin API. HTTP fields are unchanged; `transport` discriminates `"http"` and `"cli"`.
+
 ### Added — held-out rubric evaluator for `bench`
 
 `bench` learned to score answer **quality** with a third, held-out model

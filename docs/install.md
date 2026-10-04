@@ -16,7 +16,12 @@ see the README section **"Using as a Grok Custom Connector"** and
   any API keys; configs reference env-var names that the operator sets.
 - A `consensus.config.json` file. Start from
   [`consensus.config.example.json`](../consensus.config.example.json) and
-  edit it for your provider/model/persona panel.
+  edit it for your provider/model/persona panel. HTTP providers are the
+  default. [`consensus.config.subscription.example.json`](../consensus.config.subscription.example.json)
+  seats signed-in `grok` and `claude` CLIs plus one HTTP provider; the
+  installer only registers the server command and does not embed those
+  logins. A Cloudflare Worker or any remote connector cannot see `grok login`,
+  and CLI providers are rejected there.
 
 ## The CLI installer
 

@@ -44,6 +44,7 @@
   "files": [
     "dist",
     "consensus.config.example.json",
+    "consensus.config.subscription.example.json",
     "README.md",
     "LICENSE"
   ],
