@@ -5,7 +5,7 @@
 // the same value via Authorization: Bearer <key> or X-Consensus-Api-Key.
 // Health probes (/health) stay unauthenticated for deploy checks.
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Env var name for the shared HTTP endpoint secret. */
 export const HTTP_API_KEY_ENV = "CONSENSUS_HTTP_API_KEY";
@@ -60,15 +60,20 @@ function extractPresentedSecret(headers: HttpAuthHeaders): string | undefined {
   return undefined;
 }
 
+// Per-process random key: the MACs below are only ever compared with each
+// other in memory, never stored or sent, so the key never needs to persist.
+const COMPARE_KEY = randomBytes(32);
+
 /**
  * Constant-time comparison that leaks neither content nor length: both sides
- * are hashed to fixed-size SHA-256 digests before timingSafeEqual, so the
- * work done is independent of where (or whether) the inputs differ.
+ * are reduced to fixed-size HMAC-SHA-256 tags under a random per-process key
+ * before timingSafeEqual. This is a comparison, not password storage; the
+ * endpoint key is a high-entropy bearer secret, so no slow KDF is needed.
  */
 function timingSafeSecretEqual(a: string, b: string): boolean {
-  const aDigest = createHash("sha256").update(a, "utf8").digest();
-  const bDigest = createHash("sha256").update(b, "utf8").digest();
-  return timingSafeEqual(aDigest, bDigest);
+  const aTag = createHmac("sha256", COMPARE_KEY).update(a, "utf8").digest();
+  const bTag = createHmac("sha256", COMPARE_KEY).update(b, "utf8").digest();
+  return timingSafeEqual(aTag, bTag);
 }
 
 export function unauthorizedResponse(reason: HttpAuthFailureReason): Response {
