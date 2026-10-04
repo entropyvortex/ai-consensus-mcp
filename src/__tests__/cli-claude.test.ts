@@ -344,6 +344,32 @@ describe("cli backend claude driver", () => {
     expect(extractConfidence(res.content)).toBe(60);
   });
 
+  // Contract: reported usage counts every input token the subscription spent.
+  // Claude's input_tokens excludes prompt-cache reads and writes, which are
+  // most of a long consensus transcript.
+  it("counts prompt-cache tokens as input usage", async () => {
+    const { caller } = harness({
+      cache: new Map([["claude-sub", { ok: true }]]),
+      spawnImpl: () => {
+        const child = fakeChild();
+        queueMicrotask(() =>
+          succeed(child, {
+            ...RESULT,
+            usage: {
+              input_tokens: 4,
+              cache_creation_input_tokens: 100,
+              cache_read_input_tokens: 20_000,
+              output_tokens: 50,
+            },
+          }),
+        );
+        return child;
+      },
+    });
+    const res = await caller(request("p1"));
+    expect(res.usage).toEqual({ inputTokens: 20_104, outputTokens: 50, totalTokens: 20_154 });
+  });
+
   it("maps structured confidence by participant id, not by phase", async () => {
     const payload = {
       type: "result",
