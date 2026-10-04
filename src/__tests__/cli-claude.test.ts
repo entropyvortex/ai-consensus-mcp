@@ -12,6 +12,7 @@ import {
   CLAUDE_READINESS_TIMEOUT_MS,
   CLAUDE_SYSTEM_PROMPT,
   ORACLE_JSON_SCHEMA_TEXT,
+  buildChildEnv,
   probeCliProviders,
   resetCliProcessNotices,
   type ReadinessState,
@@ -245,6 +246,43 @@ describe("cli backend claude driver", () => {
     expect(env["GROK_DISABLE_AUTOUPDATER"]).toBeUndefined();
     expect(env["PATH"]).toBe("/usr/bin");
     expect(env["DBUS_SESSION_BUS_ADDRESS"]).toBe("unix:path=/run/user/1000/bus");
+  });
+
+  // Contract: a Claude subscription seat keeps working for users whose
+  // subscription credential is CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) or
+  // whose config lives under CLAUDE_CONFIG_DIR. Both reach the probe and the
+  // oracle child; API-billing credentials still do not.
+  it("passes the Claude subscription credential env to probe and oracle children", async () => {
+    const env = {
+      ...parentEnv(),
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-subscription",
+      CLAUDE_CONFIG_DIR: "/home/tester/.claude-alt",
+    };
+    const { caller, calls } = harness({ env });
+    await caller(request("p1"));
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      const childEnv = call.options.env ?? {};
+      expect(childEnv["CLAUDE_CODE_OAUTH_TOKEN"]).toBe("sk-ant-oat-subscription");
+      expect(childEnv["CLAUDE_CONFIG_DIR"]).toBe("/home/tester/.claude-alt");
+      expect(childEnv["ANTHROPIC_API_KEY"]).toBeUndefined();
+      expect(childEnv["ANTHROPIC_AUTH_TOKEN"]).toBeUndefined();
+      expect(childEnv["CLAUDE_CODE_USE_BEDROCK"]).toBeUndefined();
+      expect(childEnv["LD_PRELOAD"]).toBeUndefined();
+    }
+  });
+
+  // Contract: the Claude credential stays scoped to the claude driver; the
+  // shared allowlist does not hand it to other vendors' CLIs.
+  it("keeps the Claude credential out of the shared child env allowlist", () => {
+    const shared = buildChildEnv({
+      PATH: "/usr/bin",
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-subscription",
+      CLAUDE_CONFIG_DIR: "/home/tester/.claude-alt",
+    });
+    expect(shared["CLAUDE_CODE_OAUTH_TOKEN"]).toBeUndefined();
+    expect(shared["CLAUDE_CONFIG_DIR"]).toBeUndefined();
+    expect(shared["PATH"]).toBe("/usr/bin");
   });
 
   it("keeps a 200_000-character system off argv and on stdin", async () => {

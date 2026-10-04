@@ -5,13 +5,24 @@
 // no bypassPermissions. The transcript is stdin, never an argv element.
 // Stdin-as-prompt is assumed until a smoke shows the CLI reads it. If stdin
 // is ignored, do not move the transcript onto argv.
+// Claude-only env: CLAUDE_CODE_OAUTH_TOKEN (subscription token from
+// `claude setup-token`) and CLAUDE_CONFIG_DIR are added on top of the shared
+// allowlist for claude children only, so other vendors' CLIs never see them.
+// The runner has no per-driver env hook yet, so the oracle spawn is wrapped.
 
+import { spawn as nodeSpawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider } from "../../config.js";
 import { buildChildEnv } from "../env.js";
 import { ORACLE_JSON_SCHEMA_TEXT } from "../normalize.js";
-import { formatOraclePrompt, runOracle, spawnCaptured, type CliRuntimeDeps } from "../runner.js";
+import {
+  formatOraclePrompt,
+  runOracle,
+  spawnCaptured,
+  type CliRuntimeDeps,
+  type SpawnLike,
+} from "../runner.js";
 
 /** Same short constant as grok. Never interpolates request.system or request.user. */
 export const CLAUDE_SYSTEM_PROMPT =
@@ -22,6 +33,39 @@ export const CLAUDE_LOGIN = "claude auth login";
 export const CLAUDE_READINESS_TIMEOUT_MS = 15_000;
 
 const STDERR_CLIP = 2_000;
+
+/** Claude subscription credential and config location. Never API-billing keys. */
+export const CLAUDE_CHILD_ENV_KEYS = ["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"] as const;
+
+function claudeExtraEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const extra: NodeJS.ProcessEnv = {};
+  for (const key of CLAUDE_CHILD_ENV_KEYS) {
+    const value = parent[key];
+    if (value !== undefined && value !== "") extra[key] = value;
+  }
+  return extra;
+}
+
+/** Shared allowlist plus the claude-only keys. */
+export function buildClaudeChildEnv(parent: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...buildChildEnv(parent), ...claudeExtraEnv(parent) };
+}
+
+function defaultSpawn(
+  command: string,
+  args: readonly string[],
+  options: Parameters<SpawnLike>[2],
+): ReturnType<SpawnLike> {
+  return nodeSpawn(command, [...args], options);
+}
+
+/** Adds the claude-only keys to the env the runner already allowlisted. */
+function withClaudeEnv(parent: NodeJS.ProcessEnv, spawnImpl: SpawnLike | undefined): SpawnLike {
+  const base = spawnImpl ?? defaultSpawn;
+  const extra = claudeExtraEnv(parent);
+  return (command, args, options) =>
+    base(command, args, { ...options, env: { ...options.env, ...extra } });
+}
 
 export function buildClaudeArgv(args: { modelId: string }): string[] {
   return [
@@ -57,7 +101,7 @@ export async function probeClaude(
   const cache = deps.readinessCache;
   if (cache?.get(provider.id)?.ok) return;
   const parent = deps.env ?? process.env;
-  const env = buildChildEnv(parent);
+  const env = buildClaudeChildEnv(parent);
   const version = await spawnCaptured({
     driver: "claude",
     bin: provider.bin,
@@ -109,6 +153,7 @@ export async function runClaude(
   req: ModelCallRequest,
   deps: CliRuntimeDeps,
 ): Promise<ModelCallResponse> {
+  const parentEnv = deps.env ?? process.env;
   return runOracle({
     driver: "claude",
     bin: provider.bin,
@@ -119,8 +164,8 @@ export async function runClaude(
     user: req.user,
     timeoutMs: provider.timeoutMs,
     signal: req.signal,
-    parentEnv: deps.env ?? process.env,
-    deps,
+    parentEnv,
+    deps: { ...deps, spawnImpl: withClaudeEnv(parentEnv, deps.spawnImpl) },
     installUrl: CLAUDE_INSTALL_URL,
     loginCommand: CLAUDE_LOGIN,
     stdin: "pipe",
