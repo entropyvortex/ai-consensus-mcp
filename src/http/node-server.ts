@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { Readable } from "node:stream";
 import type { LoadedConfig } from "../config.js";
 import { SERVER_NAME } from "../version.js";
-import { resolveHttpAuthConfig, type HttpAuthConfig } from "./auth.js";
+import { HTTP_API_KEY_ENV, resolveHttpAuthConfig, type HttpAuthConfig } from "./auth.js";
 import { createHttpHandler, logHttpErrorFrom, sanitizeClientError } from "./handler.js";
 import { isLoopbackHost, LOOPBACK_HOSTNAMES } from "./host.js";
 
@@ -31,6 +31,12 @@ export interface NodeHttpServerOptions {
   allowedHosts?: readonly string[];
   /** Browser Origins to accept. Default: none (requests with Origin get 403). */
   allowedOrigins?: readonly string[];
+  /**
+   * Permit a non-loopback bind without an endpoint key. Off by default:
+   * without it, startup fails rather than exposing an open endpoint that
+   * spends the operator's provider keys.
+   */
+  allowUnauthenticated?: boolean;
 }
 
 export interface NodeHttpServerHandle {
@@ -52,6 +58,14 @@ export async function startNodeHttpServer(
   const auth = options.auth ?? resolveHttpAuthConfig();
 
   const loopback = isLoopbackHost(host);
+  if (!auth.apiKey && !loopback && !options.allowUnauthenticated) {
+    throw new Error(
+      `refusing to listen on non-loopback address ${JSON.stringify(host)} without ${HTTP_API_KEY_ENV}: ` +
+        `anyone who can reach it could spend your provider API keys. Set ${HTTP_API_KEY_ENV} ` +
+        `(e.g. \`openssl rand -base64 32\`), bind to 127.0.0.1, or pass --allow-unauthenticated ` +
+        `if a trusted layer in front enforces access control.`,
+    );
+  }
   const allowedHosts = loopback
     ? [...LOOPBACK_HOSTNAMES, host, ...(options.allowedHosts ?? [])]
     : options.allowedHosts;
@@ -82,10 +96,10 @@ export async function startNodeHttpServer(
     `${SERVER_NAME} http ready — ${options.config.participants.length} participant(s), ` +
       `${Object.keys(options.config.providers).length} provider(s) at ${url}${authNote}\n`,
   );
-  if (!auth.apiKey && (host === "0.0.0.0" || host === "::")) {
+  if (!auth.apiKey && !loopback) {
     process.stderr.write(
-      `${SERVER_NAME} http: WARNING — listening on ${host} without ${"CONSENSUS_HTTP_API_KEY"}. ` +
-        `Anyone who discovers this URL can spend your provider API keys. Set the env var before exposing publicly.\n`,
+      `${SERVER_NAME} http: WARNING — --allow-unauthenticated: listening on ${host} without ${HTTP_API_KEY_ENV}. ` +
+        `Anyone who can reach this address can spend your provider API keys.\n`,
     );
   }
 

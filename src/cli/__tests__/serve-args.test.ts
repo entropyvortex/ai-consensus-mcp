@@ -38,3 +38,10 @@ describe("parseServeArgs — HTTP flags", () => {
     expect(parseServeArgs(["--allowed-hosts"])).toBeInstanceOf(Error);
   });
 });
+
+describe("parseServeArgs — --allow-unauthenticated", () => {
+  it("defaults to false and is set by the flag", () => {
+    expect(parse(["--http"]).allowUnauthenticated).toBe(false);
+    expect(parse(["--http", "--allow-unauthenticated"]).allowUnauthenticated).toBe(true);
+  });
+});

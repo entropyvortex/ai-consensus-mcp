@@ -27,6 +27,7 @@ export interface ServeArgs {
   path: string;
   allowedHosts: string[] | undefined;
   allowedOrigins: string[] | undefined;
+  allowUnauthenticated: boolean;
 }
 
 const SERVE_HELP = `
@@ -39,7 +40,8 @@ Usage (stdio — default):
 
 Usage (remote Streamable HTTP):
   ai-consensus-mcp serve --http --config <path>
-  ai-consensus-mcp serve --http --config <path> --port 3000 --host 0.0.0.0
+  CONSENSUS_HTTP_API_KEY=<secret> ai-consensus-mcp serve --http --config <path> \
+      --host 0.0.0.0 --port 3000
   CONSENSUS_HTTP=1 ai-consensus-mcp serve --config <path>
 
 Flags:
@@ -49,6 +51,10 @@ Flags:
       --host <addr>      Bind address for HTTP mode (default: 127.0.0.1).
       --port <n>         Listen port for HTTP mode (default: 3000).
       --path <path>      MCP endpoint path for HTTP mode (default: /mcp).
+      --allow-unauthenticated
+                         Permit a non-loopback --host without
+                         CONSENSUS_HTTP_API_KEY. Without this flag the server
+                         refuses to start in that configuration.
       --allowed-hosts <list>
                          Comma-separated Host header values to accept (DNS-
                          rebinding defence). On a loopback bind, localhost,
@@ -64,9 +70,10 @@ Flags:
 Environment:
   CONSENSUS_CONFIG       Fallback config path if --config is omitted.
   CONSENSUS_HTTP         If set to 1/true, enables HTTP mode (same as --http).
-  CONSENSUS_HTTP_API_KEY REQUIRED for public HTTP deploys. Clients must send
+  CONSENSUS_HTTP_API_KEY Endpoint secret. Clients must send
                          Authorization: Bearer <key> or X-Consensus-Api-Key.
-                         When unset, the endpoint is open (local dev only).
+                         Required for any non-loopback --host (the server
+                         refuses to start otherwise). Optional on loopback.
   <PROVIDER_API_KEY>     Each provider in the config declares an \`apiKeyEnv\`;
                          that env var must be set.
 
@@ -75,8 +82,7 @@ message is written to stderr; stdout is reserved for the MCP protocol stream.
 
 HTTP mode exposes the same tools at http://<host>:<port><path> using the MCP
 Streamable HTTP transport (stateless — no session affinity). Provider API keys
-must be set in the server environment before launch. Always set
-CONSENSUS_HTTP_API_KEY before binding to 0.0.0.0 or deploying a public URL.
+must be set in the server environment before launch.
 `;
 
 type ValueFlag = (out: ServeArgs, value: string, flag: string) => Error | undefined;
@@ -122,6 +128,7 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     path: "/mcp",
     allowedHosts: undefined,
     allowedOrigins: undefined,
+    allowUnauthenticated: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -131,6 +138,10 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     }
     if (arg === "--http") {
       out.http = true;
+      continue;
+    }
+    if (arg === "--allow-unauthenticated") {
+      out.allowUnauthenticated = true;
       continue;
     }
     const inline = arg.startsWith("--") && arg.includes("=");
@@ -216,6 +227,7 @@ async function runServeHttp(
     path: args.path,
     ...(args.allowedHosts ? { allowedHosts: args.allowedHosts } : {}),
     ...(args.allowedOrigins ? { allowedOrigins: args.allowedOrigins } : {}),
+    allowUnauthenticated: args.allowUnauthenticated,
   });
 
   return new Promise<number>((resolve) => {

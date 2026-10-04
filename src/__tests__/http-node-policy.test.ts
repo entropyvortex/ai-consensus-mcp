@@ -1,7 +1,7 @@
 // Node-server policy: bind-address safety and loopback Host validation.
 
 import { request as httpRequest } from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isLoopbackHost } from "../http/host.js";
 import { startNodeHttpServer, type NodeHttpServerHandle } from "../http/node-server.js";
 import { INITIALIZE, MCP_HEADERS, makeConfig } from "./http-fixtures.js";
@@ -104,5 +104,49 @@ describe("loopback Host validation (DNS rebinding)", () => {
     const port = boundPort(handle);
     expect(await post(port, { origin: "http://attacker.example" })).toBe(403);
     expect(await post(port, { origin: "http://localhost:6274" })).toBe(200);
+  });
+});
+
+describe("bind-address safety (no open public endpoint by default)", () => {
+  it.each(["0.0.0.0", "::", "192.0.2.10", "consensus.example.com"])(
+    "refuses to start on non-loopback %s without CONSENSUS_HTTP_API_KEY",
+    async (host) => {
+      // Contract: a non-loopback bind without an endpoint key never listens —
+      // otherwise anyone who finds the URL spends the operator's provider keys.
+      await expect(
+        startNodeHttpServer({ config: makeConfig(), host, port: 0, auth: { apiKey: undefined } }),
+      ).rejects.toThrow(/CONSENSUS_HTTP_API_KEY[\s\S]*--allow-unauthenticated/);
+    },
+  );
+
+  it("starts on a non-loopback bind when an endpoint key is set", async () => {
+    handle = await startNodeHttpServer({
+      config: makeConfig(),
+      host: "0.0.0.0",
+      port: 0,
+      auth: { apiKey: "k".repeat(32) },
+    });
+    expect(handle.server.listening).toBe(true);
+  });
+
+  it("starts open on a non-loopback bind only with allowUnauthenticated, and warns loudly", async () => {
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    try {
+      handle = await startNodeHttpServer({
+        config: makeConfig(),
+        host: "0.0.0.0",
+        port: 0,
+        auth: { apiKey: undefined },
+        allowUnauthenticated: true,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(handle.server.listening).toBe(true);
+    expect(writes.join("")).toMatch(/WARNING[\s\S]*without CONSENSUS_HTTP_API_KEY/);
   });
 });
