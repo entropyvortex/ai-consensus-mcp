@@ -19,6 +19,7 @@ import {
   verifyHttpAuth,
   type HttpAuthConfig,
 } from "./auth.js";
+import { isHostAllowed, isOriginAllowed } from "./host.js";
 
 export interface HttpHandlerOptions {
   /** MCP endpoint path (default `/mcp`). Requests must match this path exactly. */
@@ -31,6 +32,18 @@ export interface HttpHandlerOptions {
    * X-Consensus-Api-Key; health stays open.
    */
   auth?: HttpAuthConfig;
+  /**
+   * DNS-rebinding defence: Host header allow-list (`host` matches any port,
+   * `host:port` pins one). Undefined skips Host validation — appropriate for
+   * a public hostname (Workers); loopback Node binds default to localhost.
+   */
+  allowedHosts?: readonly string[];
+  /**
+   * Origin allow-list. A request carrying any other Origin header (browsers
+   * always send one cross-origin) is refused with 403; requests without an
+   * Origin (server-side MCP clients) are unaffected. Default: none allowed.
+   */
+  allowedOrigins?: readonly string[];
 }
 
 /** Liveness only: no auth posture, panel shape, or version for scanners. */
@@ -49,6 +62,8 @@ export function createHttpHandler(
   const mcpPath = normalizePath(options.mcpPath ?? "/mcp");
   const enableHealth = options.enableHealth ?? true;
   const auth = options.auth ?? resolveHttpAuthConfig();
+  const allowedHosts = options.allowedHosts;
+  const allowedOrigins = options.allowedOrigins ?? [];
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
@@ -63,6 +78,20 @@ export function createHttpHandler(
 
     if (pathname !== mcpPath) {
       return new Response("Not Found", { status: 404 });
+    }
+
+    if (allowedHosts && !isHostAllowed(request.headers.get("host"), allowedHosts)) {
+      logHttpError(
+        `rejected Host ${JSON.stringify(request.headers.get("host"))} — add it to allowedHosts (--allowed-hosts) if legitimate`,
+      );
+      return jsonRpcError(403, -32000, "Forbidden: Host header not allowed", null);
+    }
+    const origin = request.headers.get("origin");
+    if (origin !== null && !isOriginAllowed(origin, allowedOrigins)) {
+      logHttpError(
+        `rejected Origin ${JSON.stringify(origin)} — add it to allowedOrigins (--allowed-origins) if legitimate`,
+      );
+      return jsonRpcError(403, -32000, "Forbidden: Origin not allowed", null);
     }
 
     // Stateless: no standalone GET SSE stream (it could never carry a

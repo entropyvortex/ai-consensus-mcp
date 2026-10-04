@@ -47,3 +47,80 @@ describe("/health", () => {
     expect(mcp.status).toBe(200);
   });
 });
+
+describe("DNS-rebinding protection (Host / Origin)", () => {
+  it("rejects a Host outside allowedHosts with 403", async () => {
+    // Contract: a page on attacker.example that rebinds its DNS to 127.0.0.1
+    // sends Host: attacker.example — the request must not reach the tools.
+    const handler = createHttpHandler(makeConfig(), {
+      ...NO_AUTH,
+      allowedHosts: ["localhost", "127.0.0.1"],
+    });
+    const res = await handler(mcpRequest(INITIALIZE, { headers: { host: "attacker.example" } }));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/Host/);
+  });
+
+  it("accepts an allow-listed Host on any port unless the entry pins one", async () => {
+    const handler = createHttpHandler(makeConfig(), {
+      ...NO_AUTH,
+      allowedHosts: ["localhost", "api.example.com:8443"],
+    });
+    const ok = await handler(mcpRequest(INITIALIZE, { headers: { host: "LOCALHOST:3000" } }));
+    expect(ok.status).toBe(200);
+    const pinned = await handler(
+      mcpRequest(INITIALIZE, { headers: { host: "api.example.com:8443" } }),
+    );
+    expect(pinned.status).toBe(200);
+    const wrongPort = await handler(
+      mcpRequest(INITIALIZE, { headers: { host: "api.example.com:9999" } }),
+    );
+    expect(wrongPort.status).toBe(403);
+  });
+
+  it("skips Host validation when allowedHosts is unset (public Workers default)", async () => {
+    const handler = createHttpHandler(makeConfig(), NO_AUTH);
+    const res = await handler(mcpRequest(INITIALIZE, { headers: { host: "anything.example" } }));
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects any Origin by default — browsers are not expected callers", async () => {
+    // Contract: a present, non-allow-listed Origin is refused (MCP spec:
+    // servers MUST validate Origin). Server-side clients send no Origin.
+    const handler = createHttpHandler(makeConfig(), NO_AUTH);
+    for (const origin of ["http://attacker.example", "null"]) {
+      const res = await handler(mcpRequest(INITIALIZE, { headers: { origin } }));
+      expect(res.status).toBe(403);
+    }
+  });
+
+  it("accepts requests without an Origin header (non-browser clients)", async () => {
+    const handler = createHttpHandler(makeConfig(), { ...NO_AUTH, allowedOrigins: [] });
+    const res = await handler(mcpRequest(INITIALIZE));
+    expect(res.status).toBe(200);
+  });
+
+  it("accepts allow-listed Origins, compared after URL normalisation", async () => {
+    const handler = createHttpHandler(makeConfig(), {
+      ...NO_AUTH,
+      allowedOrigins: ["http://localhost:6274/"],
+    });
+    const ok = await handler(
+      mcpRequest(INITIALIZE, { headers: { origin: "http://localhost:6274" } }),
+    );
+    expect(ok.status).toBe(200);
+    const other = await handler(
+      mcpRequest(INITIALIZE, { headers: { origin: "http://localhost:9999" } }),
+    );
+    expect(other.status).toBe(403);
+  });
+
+  it("leaves /health reachable regardless of Host (load-balancer probes)", async () => {
+    const handler = createHttpHandler(makeConfig(), { ...NO_AUTH, allowedHosts: ["localhost"] });
+    const res = await handler(
+      new Request("http://localhost/health", { headers: { host: "10.0.0.5:3000" } }),
+    );
+    expect(res.status).toBe(200);
+  });
+});

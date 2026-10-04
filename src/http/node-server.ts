@@ -13,6 +13,7 @@ import type { LoadedConfig } from "../config.js";
 import { SERVER_NAME } from "../version.js";
 import { resolveHttpAuthConfig, type HttpAuthConfig } from "./auth.js";
 import { createHttpHandler, logHttpErrorFrom, sanitizeClientError } from "./handler.js";
+import { isLoopbackHost, LOOPBACK_HOSTNAMES } from "./host.js";
 
 export interface NodeHttpServerOptions {
   config: LoadedConfig;
@@ -22,6 +23,14 @@ export interface NodeHttpServerOptions {
   path?: string;
   /** Endpoint auth (default: CONSENSUS_HTTP_API_KEY env). */
   auth?: HttpAuthConfig;
+  /**
+   * Extra Host header values to accept (e.g. the public name a reverse proxy
+   * forwards). On a loopback bind these are added to localhost/127.0.0.1/[::1],
+   * which are always accepted; on other binds Host is only checked when set.
+   */
+  allowedHosts?: readonly string[];
+  /** Browser Origins to accept. Default: none (requests with Origin get 403). */
+  allowedOrigins?: readonly string[];
 }
 
 export interface NodeHttpServerHandle {
@@ -42,7 +51,17 @@ export async function startNodeHttpServer(
   const mcpPath = options.path ?? "/mcp";
   const auth = options.auth ?? resolveHttpAuthConfig();
 
-  const handler = createHttpHandler(options.config, { mcpPath, auth });
+  const loopback = isLoopbackHost(host);
+  const allowedHosts = loopback
+    ? [...LOOPBACK_HOSTNAMES, host, ...(options.allowedHosts ?? [])]
+    : options.allowedHosts;
+
+  const handler = createHttpHandler(options.config, {
+    mcpPath,
+    auth,
+    ...(allowedHosts ? { allowedHosts } : {}),
+    ...(options.allowedOrigins ? { allowedOrigins: options.allowedOrigins } : {}),
+  });
 
   const server = createServer((req, res) => {
     void serveNodeRequest(handler, req, res);

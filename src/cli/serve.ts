@@ -13,17 +13,20 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "../config.js";
+import { parseList } from "../http/host.js";
 import { startNodeHttpServer } from "../http/node-server.js";
 import { createMcpServer } from "../server.js";
 import { SERVER_NAME } from "../version.js";
 
-interface ServeArgs {
+export interface ServeArgs {
   configPath: string | undefined;
   help: boolean;
   http: boolean;
   host: string;
   port: number;
   path: string;
+  allowedHosts: string[] | undefined;
+  allowedOrigins: string[] | undefined;
 }
 
 const SERVE_HELP = `
@@ -46,6 +49,16 @@ Flags:
       --host <addr>      Bind address for HTTP mode (default: 127.0.0.1).
       --port <n>         Listen port for HTTP mode (default: 3000).
       --path <path>      MCP endpoint path for HTTP mode (default: /mcp).
+      --allowed-hosts <list>
+                         Comma-separated Host header values to accept (DNS-
+                         rebinding defence). On a loopback bind, localhost,
+                         127.0.0.1 and [::1] are always accepted; add the
+                         public name your reverse proxy forwards. On other
+                         binds, Host is only checked when this is set.
+      --allowed-origins <list>
+                         Comma-separated browser Origins to accept. Requests
+                         carrying any other Origin header get 403; clients
+                         that send no Origin (server-side) are unaffected.
   -h, --help             Show this help.
 
 Environment:
@@ -66,7 +79,40 @@ must be set in the server environment before launch. Always set
 CONSENSUS_HTTP_API_KEY before binding to 0.0.0.0 or deploying a public URL.
 `;
 
-function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
+type ValueFlag = (out: ServeArgs, value: string, flag: string) => Error | undefined;
+
+const VALUE_FLAGS: Record<string, ValueFlag> = {
+  "--config": (out, v) => {
+    out.configPath = v;
+    return undefined;
+  },
+  "--host": (out, v) => {
+    out.host = v;
+    return undefined;
+  },
+  "--port": (out, v, flag) => {
+    const port = Number.parseInt(v, 10);
+    if (!Number.isFinite(port) || port < 0 || port > 65535) {
+      return new Error(`Invalid ${flag} value: ${v}`);
+    }
+    out.port = port;
+    return undefined;
+  },
+  "--path": (out, v) => {
+    out.path = v.startsWith("/") ? v : `/${v}`;
+    return undefined;
+  },
+  "--allowed-hosts": (out, v) => {
+    out.allowedHosts = parseList(v);
+    return undefined;
+  },
+  "--allowed-origins": (out, v) => {
+    out.allowedOrigins = parseList(v);
+    return undefined;
+  },
+};
+
+export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
   const out: ServeArgs = {
     configPath: undefined,
     help: false,
@@ -74,53 +120,33 @@ function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     host: "127.0.0.1",
     port: 3000,
     path: "/mcp",
+    allowedHosts: undefined,
+    allowedOrigins: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--help" || arg === "-h") {
       out.help = true;
-    } else if (arg === "--http") {
-      out.http = true;
-    } else if (arg === "--config" || arg === "-c") {
-      const next = argv[i + 1];
-      if (!next) return new Error(`Missing value for ${arg}`);
-      out.configPath = next;
-      i++;
-    } else if (arg.startsWith("--config=")) {
-      out.configPath = arg.slice("--config=".length);
-    } else if (arg === "--host") {
-      const next = argv[i + 1];
-      if (!next) return new Error("Missing value for --host");
-      out.host = next;
-      i++;
-    } else if (arg.startsWith("--host=")) {
-      out.host = arg.slice("--host=".length);
-    } else if (arg === "--port") {
-      const next = argv[i + 1];
-      if (!next) return new Error("Missing value for --port");
-      const port = Number.parseInt(next, 10);
-      if (!Number.isFinite(port) || port < 0 || port > 65535) {
-        return new Error(`Invalid --port value: ${next}`);
-      }
-      out.port = port;
-      i++;
-    } else if (arg.startsWith("--port=")) {
-      const port = Number.parseInt(arg.slice("--port=".length), 10);
-      if (!Number.isFinite(port) || port < 0 || port > 65535) {
-        return new Error(`Invalid --port value: ${arg}`);
-      }
-      out.port = port;
-    } else if (arg === "--path") {
-      const next = argv[i + 1];
-      if (!next) return new Error("Missing value for --path");
-      out.path = next.startsWith("/") ? next : `/${next}`;
-      i++;
-    } else if (arg.startsWith("--path=")) {
-      const p = arg.slice("--path=".length);
-      out.path = p.startsWith("/") ? p : `/${p}`;
-    } else {
-      return new Error(`Unknown argument: ${arg}`);
+      continue;
     }
+    if (arg === "--http") {
+      out.http = true;
+      continue;
+    }
+    const inline = arg.startsWith("--") && arg.includes("=");
+    const name = inline ? arg.slice(0, arg.indexOf("=")) : arg === "-c" ? "--config" : arg;
+    const apply = VALUE_FLAGS[name];
+    if (!apply) return new Error(`Unknown argument: ${arg}`);
+    let value: string | undefined;
+    if (inline) {
+      value = arg.slice(arg.indexOf("=") + 1);
+    } else {
+      value = argv[i + 1];
+      if (!value) return new Error(`Missing value for ${arg}`);
+      i++;
+    }
+    const err = apply(out, value, name);
+    if (err) return err;
   }
   return out;
 }
@@ -188,6 +214,8 @@ async function runServeHttp(
     host: args.host,
     port: args.port,
     path: args.path,
+    ...(args.allowedHosts ? { allowedHosts: args.allowedHosts } : {}),
+    ...(args.allowedOrigins ? { allowedOrigins: args.allowedOrigins } : {}),
   });
 
   return new Promise<number>((resolve) => {
