@@ -27,6 +27,7 @@ import {
   type RawParticipantConfig,
   type RawProviderConfig,
   RawConfigSchema,
+  configHasCliProvider,
   formatZodError,
   readRawConfig,
   writeRawConfig,
@@ -187,6 +188,14 @@ export async function runConfig(argv: readonly string[]): Promise<number> {
   if (existsSync(path)) {
     try {
       config = await readRawConfig(path);
+      if (configHasCliProvider(config)) {
+        process.stderr.write(
+          `${SERVER_NAME}: this config contains a transport "cli" provider. ` +
+            `The HTTP form would rewrite it into baseUrl + apiKeyEnv and drop the driver. ` +
+            `Edit CLI providers by hand. No changes were written.\n`,
+        );
+        return 2;
+      }
       process.stderr.write(`Loaded config from ${path}\n`);
     } catch (err) {
       process.stderr.write(
@@ -397,7 +406,11 @@ async function editProviderForm(
   config: RawConfig,
   existingId: string | undefined,
 ): Promise<{ id: string; cfg: RawProviderConfig } | undefined> {
-  const existing = existingId ? config.providers[existingId] : undefined;
+  const existingRaw = existingId ? config.providers[existingId] : undefined;
+  // The HTTP form never loads a CLI provider. The wizard exits before the
+  // edit loop when any CLI provider is present; this narrow is defense in
+  // depth so a CLI block cannot be rewritten into baseUrl + apiKeyEnv.
+  const existing = existingRaw && existingRaw.transport !== "cli" ? existingRaw : undefined;
 
   // When adding (no existingId), offer one-keystroke presets for the
   // best-known OpenAI-compatible providers. The picker just pre-fills

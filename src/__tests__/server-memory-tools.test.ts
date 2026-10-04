@@ -19,7 +19,13 @@ function makeConfig(memoryRoot: string, enabled: boolean): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants: [
       { id: "p1", modelId: "m-a", persona: PERSONAS[0]! },

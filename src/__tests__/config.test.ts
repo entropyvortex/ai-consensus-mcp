@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   loadConfig,
   loadConfigFromJson,
@@ -75,8 +76,16 @@ describe("loadConfig", () => {
     const path = await writeConfig(VALID_CONFIG);
     const cfg = await loadConfig(path);
 
-    expect(cfg.providers.anthropic?.apiKey).toBe("test-anthropic");
-    expect(cfg.providers.openai?.apiKey).toBe("test-openai");
+    expect(cfg.providers.anthropic).toMatchObject({
+      transport: "http",
+      apiKey: "test-anthropic",
+      baseUrl: "https://api.anthropic.com/v1",
+    });
+    expect(cfg.providers.openai).toMatchObject({
+      transport: "http",
+      apiKey: "test-openai",
+      baseUrl: "https://api.openai.com/v1",
+    });
     expect(cfg.participants).toHaveLength(2);
     expect(cfg.participants[0]?.persona.id).toBe("pessimist");
     expect(cfg.providerByParticipant).toMatchObject({
@@ -92,8 +101,14 @@ describe("loadConfig", () => {
   it("strips trailing slashes from provider baseUrl", async () => {
     const path = await writeConfig(VALID_CONFIG);
     const cfg = await loadConfig(path);
-    expect(cfg.providers.anthropic?.baseUrl).toBe("https://api.anthropic.com/v1");
-    expect(cfg.providers.openai?.baseUrl).toBe("https://api.openai.com/v1");
+    expect(cfg.providers.anthropic).toMatchObject({
+      transport: "http",
+      baseUrl: "https://api.anthropic.com/v1",
+    });
+    expect(cfg.providers.openai).toMatchObject({
+      transport: "http",
+      baseUrl: "https://api.openai.com/v1",
+    });
   });
 
   it("defaults useJudge to false when no judge is declared", async () => {
@@ -200,7 +215,11 @@ describe("readRawConfig / writeRawConfig", () => {
     const path = await writeConfig(VALID_CONFIG);
     // No env stubbing — readRawConfig must not require API keys.
     const raw = await readRawConfig(path);
-    expect(raw.providers.anthropic?.apiKeyEnv).toBe("TEST_ANTHROPIC_KEY");
+    const anthropic = raw.providers.anthropic;
+    if (!anthropic || anthropic.transport === "cli") {
+      throw new Error("expected HTTP anthropic provider");
+    }
+    expect(anthropic.apiKeyEnv).toBe("TEST_ANTHROPIC_KEY");
     expect(raw.participants).toHaveLength(2);
     expect(raw.judge?.modelId).toBe("claude-opus-4-5");
   });
@@ -249,11 +268,27 @@ describe("readRawConfig / writeRawConfig", () => {
   });
 });
 
-describe("resolveConfigFromRaw / loadConfigFromJson", () => {
+const WORKERS_CLI_ERROR =
+  /provider "grok-sub" uses transport "cli", which cannot spawn a local process on Cloudflare Workers[\s\S]*ai-consensus-mcp serve[\s\S]*HTTP providers in this file were not loaded/;
+
+function cliPanel(provider: Record<string, unknown>): unknown {
+  return {
+    providers: { "grok-sub": provider },
+    participants: [
+      { id: "a", provider: "grok-sub", modelId: "grok-4", personaId: "pessimist" },
+      { id: "b", provider: "grok-sub", modelId: "grok-4", personaId: "domain-expert" },
+    ],
+  };
+}
+
+describe("CLI provider resolve", () => {
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-inline-"));
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-cli-"));
     vi.stubEnv("TEST_ANTHROPIC_KEY", "test-anthropic");
     vi.stubEnv("TEST_OPENAI_KEY", "test-openai");
+    vi.stubEnv("CONSENSUS_ANTHROPIC_API_KEY", "example-anthropic");
+    vi.stubEnv("OPENAI_API_KEY", "example-openai");
+    vi.stubEnv("GROQ_API_KEY", "example-groq");
   });
 
   afterEach(async () => {
@@ -261,25 +296,141 @@ describe("resolveConfigFromRaw / loadConfigFromJson", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("resolveConfigFromRaw materialises the same shape as loadConfig", async () => {
-    const path = await writeConfig(VALID_CONFIG);
-    const fromFile = await loadConfig(path);
-    const fromRaw = resolveConfigFromRaw(
-      {
-        providers: VALID_CONFIG.providers,
-        participants: VALID_CONFIG.participants,
-        judge: VALID_CONFIG.judge,
-      },
-      "inline-test",
+  it("loads the shipped HTTP example with no CLI binary required", async () => {
+    const example = fileURLToPath(new URL("../../consensus.config.example.json", import.meta.url));
+    const cfg = await loadConfig(example);
+    expect(Object.values(cfg.providers).every((provider) => provider.transport === "http")).toBe(
+      true,
     );
-    expect(fromRaw.participants).toHaveLength(fromFile.participants.length);
-    expect(fromRaw.providers).toEqual(fromFile.providers);
-    expect(fromRaw.sourcePath).toBe("inline-test");
+    expect(cfg.participants.length).toBeGreaterThanOrEqual(2);
+    expect(cfg.defaults.cliMaxInFlight).toBeUndefined();
   });
 
-  it("loadConfigFromJson parses inline JSON for serverless deploys", () => {
-    const loaded = loadConfigFromJson(JSON.stringify(VALID_CONFIG), "env:CONSENSUS_CONFIG_JSON");
-    expect(loaded.participants).toHaveLength(2);
-    expect(loaded.sourcePath).toBe("env:CONSENSUS_CONFIG_JSON");
+  it("resolves a CLI provider without an API key and without a binary", async () => {
+    const path = await writeConfig(
+      cliPanel({
+        transport: "cli",
+        driver: "grok",
+        bin: "grok",
+        timeoutMs: 5_000,
+        authPath: "/tmp/does-not-need-to-exist.json",
+      }),
+    );
+    const cfg = await loadConfig(path);
+    expect(cfg.providers["grok-sub"]).toEqual({
+      id: "grok-sub",
+      transport: "cli",
+      driver: "grok",
+      bin: "grok",
+      timeoutMs: 5_000,
+      authPath: "/tmp/does-not-need-to-exist.json",
+    });
+    expect(cfg.defaults.cliMaxInFlight).toBe(2);
+  });
+
+  it("defaults omitted CLI bin, timeout, and authPath", async () => {
+    const path = await writeConfig(cliPanel({ transport: "cli", driver: "codex" }));
+    const cfg = await loadConfig(path);
+    expect(cfg.providers["grok-sub"]).toEqual({
+      id: "grok-sub",
+      transport: "cli",
+      driver: "codex",
+      bin: "codex",
+      timeoutMs: 120_000,
+      authPath: undefined,
+    });
+  });
+
+  it("rejects apiKeyEnv on a CLI provider", async () => {
+    const path = await writeConfig(
+      cliPanel({ transport: "cli", driver: "grok", apiKeyEnv: "GROK_API_KEY" }),
+    );
+    await expect(loadConfig(path)).rejects.toThrow(/apiKeyEnv/);
+  });
+
+  it("rejects an unknown key beside driver", async () => {
+    const path = await writeConfig(
+      cliPanel({ transport: "cli", driver: "grok", baseUrl: "https://api.x.ai/v1" }),
+    );
+    await expect(loadConfig(path)).rejects.toThrow(/baseUrl/);
+  });
+
+  it("rejects an unknown key beside baseUrl", async () => {
+    const bad = structuredClone(VALID_CONFIG);
+    (bad.providers.anthropic as Record<string, unknown>).typo = true;
+    const path = await writeConfig(bad);
+    await expect(loadConfig(path)).rejects.toThrow(/typo/);
+  });
+
+  it("rejects CLI providers when allowCli is false and still loads HTTP-only configs", async () => {
+    const cliPath = await writeConfig(cliPanel({ transport: "cli", driver: "claude" }));
+    await expect(loadConfig(cliPath, { allowCli: false })).rejects.toThrow(WORKERS_CLI_ERROR);
+
+    const httpPath = await writeConfig(VALID_CONFIG, "http.json");
+    const http = await loadConfig(httpPath, { allowCli: false });
+    expect(http.providers.anthropic).toMatchObject({ transport: "http", apiKey: "test-anthropic" });
+  });
+
+  it("loadConfigFromJson honors allowCli false for Workers", () => {
+    expect(() =>
+      loadConfigFromJson(
+        JSON.stringify(cliPanel({ transport: "cli", driver: "grok" })),
+        "worker:CONSENSUS_CONFIG_JSON",
+        {
+          allowCli: false,
+        },
+      ),
+    ).toThrow(WORKERS_CLI_ERROR);
+    const http = loadConfigFromJson(JSON.stringify(VALID_CONFIG), "worker:CONSENSUS_CONFIG_JSON", {
+      allowCli: false,
+    });
+    expect(http.participants).toHaveLength(2);
+    expect(http.providers.openai).toMatchObject({ transport: "http" });
+  });
+
+  it("treats a Cloudflare-Workers user agent as allowCli false when the option is omitted", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { userAgent: "Cloudflare-Workers" },
+    });
+    try {
+      expect(() =>
+        resolveConfigFromRaw(
+          {
+            providers: { "grok-sub": { transport: "cli", driver: "grok" } },
+            participants: [
+              { id: "a", provider: "grok-sub", modelId: "m", personaId: "pessimist" },
+              { id: "b", provider: "grok-sub", modelId: "m", personaId: "domain-expert" },
+            ],
+          },
+          "worker-ua",
+        ),
+      ).toThrow(WORKERS_CLI_ERROR);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+      else Reflect.deleteProperty(globalThis, "navigator");
+    }
+  });
+
+  it("round-trips a CLI provider through the raw schema without adding an API key", async () => {
+    const path = join(dir, "cli-raw.json");
+    const cfg: RawConfig = {
+      providers: {
+        "grok-sub": { transport: "cli", driver: "grok" },
+        openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "OPENAI_API_KEY" },
+      },
+      participants: [
+        { id: "a", provider: "grok-sub", modelId: "grok-4", personaId: "pessimist" },
+        { id: "b", provider: "openai", modelId: "gpt-4o", personaId: "domain-expert" },
+      ],
+    };
+    await writeRawConfig(path, cfg);
+    const back = await readRawConfig(path);
+    expect(back.providers["grok-sub"]).toEqual({ transport: "cli", driver: "grok" });
+    expect(back.providers.openai).toEqual({
+      baseUrl: "https://api.openai.com/v1",
+      apiKeyEnv: "OPENAI_API_KEY",
+    });
   });
 });

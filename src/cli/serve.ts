@@ -12,7 +12,7 @@
 // clients (Grok custom connectors, etc.). See docs and examples/.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "../config.js";
+import { formatCliProviderStartupNote, loadConfig } from "../config.js";
 import { parseList } from "../http/host.js";
 import { startNodeHttpServer } from "../http/node-server.js";
 import { createMcpServer } from "../server.js";
@@ -219,6 +219,7 @@ export async function runServe(argv: readonly string[]): Promise<number> {
   }
 
   const config = await loadConfig(configPath);
+  process.stderr.write(formatCliProviderStartupNote(config));
 
   if (parsed.http) {
     return runServeHttp(config, parsed);

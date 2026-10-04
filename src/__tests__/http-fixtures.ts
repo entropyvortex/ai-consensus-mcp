@@ -13,6 +13,7 @@ export function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig 
     providers: {
       test: {
         id: "test",
+        transport: "http",
         baseUrl: `https://${PROVIDER_HOST}`,
         apiKey: "k",
         extraHeaders: {},

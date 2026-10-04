@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────
-// ModelCaller adapters — OpenAI-compatible HTTP only
+// ModelCaller adapters — OpenAI-compatible HTTP only.
+// CLI providers are rejected here; createConsensusCaller owns that branch.
 // ─────────────────────────────────────────────────────────────
 // Every major provider exposes an OpenAI-compatible endpoint:
 // OpenAI, Anthropic (api.anthropic.com/v1), Groq, Together, xAI,
@@ -8,7 +9,7 @@
 // keeps this package dependency-light (no provider SDKs).
 
 import type { ModelCaller, TokenUsage } from "ai-consensus-core";
-import type { ResolvedProvider } from "./config.js";
+import type { ResolvedHttpProvider, ResolvedProvider } from "./config.js";
 
 /**
  * Build a ModelCaller that routes each request to the correct provider
@@ -38,6 +39,9 @@ export function createOpenAICompatibleCaller(args: {
         `ai-consensus-mcp: provider "${providerId}" resolved for "${req.participantId}" was not loaded.`,
       );
     }
+    if (provider.transport === "cli") {
+      throw new Error(`provider "${provider.id}" is transport cli; use createConsensusCaller`);
+    }
 
     return callOpenAICompatible({
       provider,
@@ -53,7 +57,7 @@ export function createOpenAICompatibleCaller(args: {
 }
 
 interface CallParams {
-  provider: ResolvedProvider;
+  provider: ResolvedHttpProvider;
   modelId: string;
   system: string;
   user: string;

@@ -26,7 +26,13 @@ function makeFullConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants,
     providerByParticipant,

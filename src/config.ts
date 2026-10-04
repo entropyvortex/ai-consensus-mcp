@@ -15,11 +15,29 @@ import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
-const ProviderConfigSchema = z.object({
-  baseUrl: z.string().url(),
-  apiKeyEnv: z.string().min(1),
-  extraHeaders: z.record(z.string(), z.string()).optional(),
-});
+// Each transport arm is strict so a typo beside `driver` or `baseUrl` fails
+// validation instead of being stripped. Omitted `transport` stays HTTP: the
+// HTTP arm does not inject a default, so existing files round-trip unchanged.
+const HttpProviderConfigSchema = z
+  .object({
+    transport: z.literal("http").optional(),
+    baseUrl: z.string().url(),
+    apiKeyEnv: z.string().min(1),
+    extraHeaders: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+
+const CliProviderConfigSchema = z
+  .object({
+    transport: z.literal("cli"),
+    driver: z.enum(["grok", "claude", "codex"]),
+    bin: z.string().min(1).optional(),
+    timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+    authPath: z.string().min(1).optional(),
+  })
+  .strict();
+
+const ProviderConfigSchema = z.union([CliProviderConfigSchema, HttpProviderConfigSchema]);
 
 // Participant config (provider-backed only).
 // Existing configs that omit `kind` resolve to "provider" for backwards
@@ -57,6 +75,8 @@ const DefaultsSchema = z
     participantTemperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().optional(),
     useJudge: z.boolean().optional(),
+    /** In-flight cap for CLI seats. Ignored by HTTP-only panels. Gate lands in a later PR. */
+    cliMaxInFlight: z.number().int().min(1).max(4).optional(),
   })
   .strict();
 
@@ -85,6 +105,8 @@ export type RawDefaults = z.infer<typeof DefaultsSchema>;
 export {
   RawConfigSchema,
   ProviderConfigSchema,
+  HttpProviderConfigSchema,
+  CliProviderConfigSchema,
   ParticipantConfigSchema,
   ProviderParticipantConfigSchema,
   JudgeConfigSchema,
@@ -93,11 +115,23 @@ export {
 
 // ── Resolved / runtime shape ─────────────────────────────────
 
-export interface ResolvedProvider {
+export type ResolvedProvider = ResolvedHttpProvider | ResolvedCliProvider;
+
+export interface ResolvedHttpProvider {
   id: string;
+  transport: "http";
   baseUrl: string;
   apiKey: string;
   extraHeaders: Record<string, string>;
+}
+
+export interface ResolvedCliProvider {
+  id: string;
+  transport: "cli";
+  driver: "grok" | "claude" | "codex";
+  bin: string;
+  timeoutMs: number;
+  authPath: string | undefined;
 }
 
 export interface ResolvedJudge {
@@ -117,6 +151,11 @@ export interface ResolvedDefaults {
   participantTemperature: number | undefined;
   maxOutputTokens: number | undefined;
   useJudge: boolean;
+  /**
+   * Set when configured, or defaulted to 2 when any provider is transport cli.
+   * Undefined for HTTP-only configs that omit the key. No gate reads it yet.
+   */
+  cliMaxInFlight?: number;
 }
 
 export interface LoadedConfig {
@@ -155,16 +194,83 @@ export interface ResolvedMemoryRuntime {
 
 // ── Loader ───────────────────────────────────────────────────
 
+export interface ResolveConfigOptions {
+  /** Default true on Node. Worker entry passes false. */
+  allowCli?: boolean;
+}
+
+/**
+ * True when any raw provider uses the CLI transport. The wizard uses this
+ * to refuse the HTTP edit form before it can rewrite a subscription seat.
+ */
+export function configHasCliProvider(raw: RawConfig): boolean {
+  return Object.values(raw.providers).some((provider) => provider.transport === "cli");
+}
+
+/**
+ * Stderr note for `serve` after a CLI provider resolves. Does not spawn.
+ * Empty string when every provider is HTTP.
+ */
+export function formatCliProviderStartupNote(config: LoadedConfig): string {
+  const lines: string[] = [];
+  for (const provider of Object.values(config.providers)) {
+    if (provider.transport !== "cli") continue;
+    lines.push(
+      `ai-consensus-mcp: CLI provider "${provider.id}" (driver ${provider.driver}) resolved. No process is spawned. Calls fail until a driver is registered; HTTP providers are unaffected.`,
+    );
+  }
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
+export async function loadConfig(
+  path: string,
+  options?: ResolveConfigOptions,
+): Promise<LoadedConfig> {
+  const absolute = resolvePath(path);
+  const raw = await readRawConfig(absolute);
+  return resolveConfigFromRaw(raw, absolute, options);
+}
+
+/**
+ * Load config from a JSON string (e.g. `CONSENSUS_CONFIG_JSON` on Workers).
+ * `sourceLabel` is recorded as `LoadedConfig.sourcePath` for logging only.
+ */
+export function loadConfigFromJson(
+  text: string,
+  sourceLabel = "CONSENSUS_CONFIG_JSON",
+  options?: ResolveConfigOptions,
+): LoadedConfig {
+  const raw = parseRawConfigJson(text, sourceLabel);
+  return resolveConfigFromRaw(raw, sourceLabel, options);
+}
+
 /**
  * Parse and validate a raw config object into a fully-resolved `LoadedConfig`.
- * Does not read from disk — use `loadConfig` for file-based loading, or call
- * this directly in serverless runtimes (e.g. Cloudflare Workers) that receive
- * config from an environment variable or KV store.
+ * Does not read from disk and does not stat CLI binaries. HTTP providers still
+ * require their apiKeyEnv to be set. CLI providers do not.
  */
-export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): LoadedConfig {
-  // Resolve providers (env var → api key)
+export function resolveConfigFromRaw(
+  raw: RawConfig,
+  sourcePath: string,
+  options?: ResolveConfigOptions,
+): LoadedConfig {
+  const allowCli = resolveAllowCli(options);
   const providers: Record<string, ResolvedProvider> = {};
   for (const [id, cfg] of Object.entries(raw.providers)) {
+    if (cfg.transport === "cli") {
+      if (!allowCli) {
+        throw new Error(workersCliError(id));
+      }
+      providers[id] = {
+        id,
+        transport: "cli",
+        driver: cfg.driver,
+        bin: cfg.bin ?? cfg.driver,
+        timeoutMs: cfg.timeoutMs ?? 120_000,
+        authPath: cfg.authPath,
+      };
+      continue;
+    }
     const apiKey = process.env[cfg.apiKeyEnv];
     if (!apiKey) {
       throw new Error(
@@ -173,6 +279,7 @@ export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): Loaded
     }
     providers[id] = {
       id,
+      transport: "http",
       baseUrl: cfg.baseUrl.replace(/\/+$/, ""),
       apiKey,
       extraHeaders: cfg.extraHeaders ?? {},
@@ -184,30 +291,32 @@ export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): Loaded
   const providerByParticipant: Record<string, string> = {};
   const participantIds = new Set<string>();
 
-  for (const p of raw.participants) {
-    if (participantIds.has(p.id)) {
-      throw new Error(`ai-consensus-mcp: duplicate participant id "${p.id}".`);
+  for (const participant of raw.participants) {
+    if (participantIds.has(participant.id)) {
+      throw new Error(`ai-consensus-mcp: duplicate participant id "${participant.id}".`);
     }
-    participantIds.add(p.id);
+    participantIds.add(participant.id);
 
-    const persona = getPersonaById(p.personaId);
+    const persona = getPersonaById(participant.personaId);
     if (!persona) {
       throw new Error(
-        `ai-consensus-mcp: participant "${p.id}" references unknown persona id "${p.personaId}". Known: ${PERSONAS.map(
+        `ai-consensus-mcp: participant "${participant.id}" references unknown persona id "${participant.personaId}". Known: ${PERSONAS.map(
           (x) => x.id,
         ).join(", ")}.`,
       );
     }
 
     // Provider-backed only (kind defaults to "provider" for backwards compat).
-    if (!providers[p.provider]) {
+    if (!providers[participant.provider]) {
       throw new Error(
-        `ai-consensus-mcp: participant "${p.id}" references unknown provider "${p.provider}". Known: ${Object.keys(providers).join(", ") || "(none)"}.`,
+        `ai-consensus-mcp: participant "${participant.id}" references unknown provider "${participant.provider}". Known: ${Object.keys(providers).join(", ") || "(none)"}.`,
       );
     }
 
-    participants.push(buildParticipant(p.id, p.modelId, persona, p.label));
-    providerByParticipant[p.id] = p.provider;
+    participants.push(
+      buildParticipant(participant.id, participant.modelId, persona, participant.label),
+    );
+    providerByParticipant[participant.id] = participant.provider;
   }
 
   // Optional judge
@@ -227,6 +336,7 @@ export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): Loaded
     providerByParticipant["judge"] = raw.judge.provider;
   }
 
+  const anyCli = Object.values(providers).some((provider) => provider.transport === "cli");
   const defaults: ResolvedDefaults = {
     maxRounds: raw.defaults?.maxRounds,
     earlyStop: raw.defaults?.earlyStop,
@@ -237,6 +347,7 @@ export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): Loaded
     participantTemperature: raw.defaults?.participantTemperature,
     maxOutputTokens: raw.defaults?.maxOutputTokens,
     useJudge: raw.defaults?.useJudge ?? Boolean(judge),
+    cliMaxInFlight: raw.defaults?.cliMaxInFlight ?? (anyCli ? 2 : undefined),
   };
 
   const memory = resolveMemoryRuntime(raw.memory);
@@ -252,10 +363,29 @@ export function resolveConfigFromRaw(raw: RawConfig, sourcePath: string): Loaded
   };
 }
 
-function parseRawConfigJson(text: string, label: string): RawConfig {
+function resolveAllowCli(options: ResolveConfigOptions | undefined): boolean {
+  if (options?.allowCli !== undefined) return options.allowCli;
+  return !cloudflareWorkersUserAgent();
+}
+
+function cloudflareWorkersUserAgent(): boolean {
+  const nav = (globalThis as { navigator?: { userAgent?: unknown } }).navigator;
+  const ua = nav?.userAgent;
+  return typeof ua === "string" && ua.includes("Cloudflare-Workers");
+}
+
+function workersCliError(id: string): string {
+  return (
+    `ai-consensus-mcp: provider "${id}" uses transport "cli", which cannot spawn a local process on Cloudflare Workers. ` +
+    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok, claude, or codex CLI installed. " +
+    "HTTP providers in this file were not loaded because the config is rejected as a whole."
+  );
+}
+
+function parseRawConfigJson(jsonText: string, label: string): RawConfig {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(jsonText);
   } catch (err) {
     throw new Error(
       `ai-consensus-mcp: config at ${label} is not valid JSON: ${
@@ -271,35 +401,6 @@ function parseRawConfigJson(text: string, label: string): RawConfig {
     );
   }
   return validated.data;
-}
-
-export async function loadConfig(path: string): Promise<LoadedConfig> {
-  const absolute = resolvePath(path);
-  let text: string;
-  try {
-    text = await readFile(absolute, "utf8");
-  } catch (err) {
-    throw new Error(
-      `ai-consensus-mcp: could not read config at ${absolute}: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-
-  const raw = parseRawConfigJson(text, absolute);
-  return resolveConfigFromRaw(raw, absolute);
-}
-
-/**
- * Load config from a JSON string (e.g. `CONSENSUS_CONFIG_JSON` in Workers).
- * `sourceLabel` is recorded as `LoadedConfig.sourcePath` for logging only.
- */
-export function loadConfigFromJson(
-  text: string,
-  sourceLabel = "CONSENSUS_CONFIG_JSON",
-): LoadedConfig {
-  const raw = parseRawConfigJson(text, sourceLabel);
-  return resolveConfigFromRaw(raw, sourceLabel);
 }
 
 /**
@@ -330,7 +431,27 @@ function buildParticipant(
 }
 
 export function formatZodError(err: z.ZodError): string {
-  return err.errors.map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`).join("\n");
+  return flattenZodIssues(err.issues)
+    .map((issue) => `  • ${issue.path.join(".") || "<root>"}: ${issue.message}`)
+    .join("\n");
+}
+
+function flattenZodIssues(
+  issues: z.ZodIssue[],
+  prefix: (string | number)[] = [],
+): { path: (string | number)[]; message: string }[] {
+  const out: { path: (string | number)[]; message: string }[] = [];
+  for (const issue of issues) {
+    const path = [...prefix, ...issue.path];
+    if (issue.code === "invalid_union") {
+      for (const nested of issue.unionErrors) {
+        out.push(...flattenZodIssues(nested.issues, path));
+      }
+      continue;
+    }
+    out.push({ path, message: issue.message });
+  }
+  return out;
 }
 
 // ── Read/write helpers used by the interactive config editor ─────
