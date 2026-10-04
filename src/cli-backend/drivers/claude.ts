@@ -91,6 +91,53 @@ export function buildClaudeArgv(args: { modelId: string }): string[] {
   ];
 }
 
+/**
+ * Root `--setting-sources ""` matches the oracle run, so an apiKeyHelper in
+ * user settings cannot make the probe report a login the run will not use.
+ */
+export const CLAUDE_AUTH_STATUS_ARGV: readonly string[] = [
+  "--setting-sources",
+  "",
+  "auth",
+  "status",
+  "--json",
+];
+
+function authMethodLabel(value: unknown): string {
+  if (typeof value !== "string") return "unknown";
+  return /^[A-Za-z0-9_.-]{1,40}$/.test(value) ? value : "unknown";
+}
+
+/**
+ * Passes only a Claude subscription: a claude.ai login, or `oauth_token` when
+ * the child holds CLAUDE_CODE_OAUTH_TOKEN (claude setup-token requires a
+ * subscription). ANTHROPIC_AUTH_TOKEN also reports oauth_token but is never in
+ * the child env. Never echoes stdout: it carries the email and org.
+ */
+function assertSubscriptionAuth(bin: string, stdout: string, env: NodeJS.ProcessEnv): void {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout) as unknown;
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(
+      `cli driver claude: could not read "${bin} auth status --json" output. Run ${CLAUDE_LOGIN}.`,
+    );
+  }
+  const rec = parsed as Record<string, unknown>;
+  const method = authMethodLabel(rec["authMethod"]);
+  const subscription =
+    method === "claude.ai" ||
+    (method === "oauth_token" && typeof env["CLAUDE_CODE_OAUTH_TOKEN"] === "string");
+  if (rec["loggedIn"] !== true || !subscription) {
+    throw new Error(
+      `cli driver claude: "${bin} auth status" reports authMethod=${method}. This seat runs only on a Claude subscription (claude.ai login, or CLAUDE_CODE_OAUTH_TOKEN from claude setup-token); any other method would bill the API. Run ${CLAUDE_LOGIN}.`,
+    );
+  }
+}
+
 export async function probeClaude(
   provider: ResolvedCliProvider,
   deps: CliRuntimeDeps,
@@ -126,7 +173,7 @@ export async function probeClaude(
   const status = await spawnCaptured({
     driver: "claude",
     bin: provider.bin,
-    argv: ["auth", "status"],
+    argv: CLAUDE_AUTH_STATUS_ARGV,
     cwd: tmpdir(),
     env,
     stdin: "ignore",
@@ -145,6 +192,7 @@ export async function probeClaude(
       `cli driver claude: "${provider.bin} auth status" failed (exit ${status.exitCode ?? "null"}): ${clip} Run ${CLAUDE_LOGIN}.`,
     );
   }
+  assertSubscriptionAuth(provider.bin, status.stdout, env);
   cache?.set(provider.id, { ok: true });
 }
 

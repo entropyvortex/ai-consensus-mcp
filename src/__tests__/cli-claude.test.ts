@@ -111,6 +111,23 @@ function collectStdin(child: FakeChild): { text: () => string } {
   };
 }
 
+const AUTH_STATUS_ARGV = ["--setting-sources", "", "auth", "status", "--json"];
+
+function isAuthStatus(args: readonly string[]): boolean {
+  return args.includes("auth") && args.includes("status");
+}
+
+function authStatus(fields: Record<string, unknown>): string {
+  return JSON.stringify({
+    loggedIn: true,
+    email: "secret-user@example.com",
+    orgName: "Secret Org",
+    ...fields,
+  });
+}
+
+const AUTH_OK = authStatus({ authMethod: "claude.ai", subscriptionType: "max" });
+
 const RESULT = {
   type: "result",
   subtype: "success",
@@ -138,8 +155,8 @@ describe("cli backend claude driver", () => {
       options?.spawnImpl ??
       ((command: string, args: readonly string[]) => {
         const child = fakeChild();
-        if (args[0] === "--version" || (args[0] === "auth" && args[1] === "status")) {
-          closeSoon(child, 0, args[0] === "auth" ? "secret-user@example.com\n" : "2.1.289\n");
+        if (args[0] === "--version" || isAuthStatus(args)) {
+          closeSoon(child, 0, isAuthStatus(args) ? AUTH_OK : "2.1.289\n");
           return child;
         }
         queueMicrotask(() => succeed(child, RESULT));
@@ -175,8 +192,8 @@ describe("cli backend claude driver", () => {
           closeSoon(child, 0, "2.1.289\n");
           return child;
         }
-        if (args[0] === "auth") {
-          closeSoon(child, 0, "secret-user@example.com\n");
+        if (isAuthStatus(args)) {
+          closeSoon(child, 0, AUTH_OK);
           return child;
         }
         const captured = collectStdin(child);
@@ -197,7 +214,7 @@ describe("cli backend claude driver", () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ["--version"],
-      ["auth", "status"],
+      AUTH_STATUS_ARGV,
       [
         "-p",
         "--output-format",
@@ -349,8 +366,8 @@ describe("cli backend claude driver", () => {
       expect(command).toBe("claude");
       const child = fakeChild();
       if (args[0] === "--version") closeSoon(child, 0, "2.1.289\n");
-      else if (args[0] === "auth" && args[1] === "status") {
-        closeSoon(child, 1, "secret-user@example.com\n", "not logged in");
+      else if (isAuthStatus(args)) {
+        closeSoon(child, 1, authStatus({ loggedIn: false, authMethod: "none" }), "not logged in");
       } else {
         throw new Error(`unexpected argv ${args.join(" ")}`);
       }
@@ -385,7 +402,7 @@ describe("cli backend claude driver", () => {
       spawnImpl: (_command, args) => {
         spawns += 1;
         const child = fakeChild();
-        closeSoon(child, 0, args[0] === "--version" ? "2.1.289\n" : "secret-user@example.com\n");
+        closeSoon(child, 0, args[0] === "--version" ? "2.1.289\n" : AUTH_OK);
         return child;
       },
     });
@@ -393,6 +410,86 @@ describe("cli backend claude driver", () => {
     expect(again).not.toContain("secret-user@example.com");
     expect(spawns).toBe(2);
     expect(cache.get("claude-sub")).toEqual({ ok: true });
+  });
+
+  /** Fake claude whose probe children answer; any oracle spawn is counted. */
+  function probeOnlySpawn(statusStdout: string, seen: string[][], oracle: { spawns: number }) {
+    return (_command: string, args: readonly string[]) => {
+      seen.push([...args]);
+      const child = fakeChild();
+      if (args[0] === "--version") closeSoon(child, 0, "2.1.289\n");
+      else if (isAuthStatus(args)) closeSoon(child, 0, statusStdout);
+      else {
+        oracle.spawns += 1;
+        closeSoon(child, 0, JSON.stringify(RESULT));
+      }
+      return child;
+    };
+  }
+
+  function probeWith(statusStdout: string, env: NodeJS.ProcessEnv = parentEnv()) {
+    const cache = new Map<string, ReadinessState>();
+    const seen: string[][] = [];
+    const oracle = { spawns: 0 };
+    const run = probeCliProviders({
+      providers: { "claude-sub": claudeProvider() },
+      env,
+      cache,
+      spawnImpl: probeOnlySpawn(statusStdout, seen, oracle),
+    });
+    return { run, cache, seen, oracle };
+  }
+
+  // Contract: a "subscription" seat never silently bills the API. Only a
+  // claude.ai login passes; every other auth method that `auth status` exits 0
+  // for is refused before any oracle spawn, and the reason names the billing.
+  it.each(["api_key", "api_key_helper", "third_party", "oauth_token", "none"])(
+    "refuses auth method %s because the seat would bill the API",
+    async (authMethod) => {
+      const status = authStatus({ authMethod });
+      const { run, cache, seen } = probeWith(status);
+      const note = await run;
+      expect(seen[1]).toEqual(AUTH_STATUS_ARGV);
+      expect(note).toContain(`authMethod=${authMethod}`);
+      expect(note).toContain("would bill the API");
+      expect(note).toContain("claude auth login");
+      expect(note).not.toContain("secret-user@example.com");
+      expect(note).not.toContain("Secret Org");
+      expect(cache.has("claude-sub")).toBe(false);
+
+      // A seat call re-probes (failures are not cached), is refused for the
+      // same reason, and never reaches the oracle spawn.
+      const oracle = { spawns: 0 };
+      const caller = createConsensusCaller({
+        providers: { "claude-sub": claudeProvider() },
+        providerByParticipant: { p1: "claude-sub" },
+        cliGate: new CliGate(2),
+        readinessCache: cache,
+        env: parentEnv(),
+        log: () => undefined,
+        spawnImpl: probeOnlySpawn(status, [], oracle),
+      });
+      await expect(caller(request("p1"))).rejects.toThrow("would bill the API");
+      expect(oracle.spawns).toBe(0);
+    },
+  );
+
+  // Contract: a setup-token subscription credential reports oauth_token and is
+  // accepted, but only when CLAUDE_CODE_OAUTH_TOKEN is what the child received.
+  it("accepts oauth_token when the child holds CLAUDE_CODE_OAUTH_TOKEN", async () => {
+    const env = { ...parentEnv(), CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat-subscription" };
+    const { run, cache } = probeWith(authStatus({ authMethod: "oauth_token" }), env);
+    expect(await run).toContain("driver=claude ok");
+    expect(cache.get("claude-sub")).toEqual({ ok: true });
+  });
+
+  // Contract: an auth status that cannot be read is not treated as logged in.
+  it("refuses an unreadable auth status even when it exits 0", async () => {
+    const { run, cache } = probeWith("Logged in as secret-user@example.com\n");
+    const note = await run;
+    expect(note).toContain("could not read");
+    expect(note).not.toContain("secret-user@example.com");
+    expect(cache.has("claude-sub")).toBe(false);
   });
 
   it("fails a missing claude binary from the spawn error event", async () => {
