@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import { formatZodError, loadConfigFromJson } from "../config.js";
+import { formatCliProviderStartupNote, formatZodError, loadConfigFromJson } from "../config.js";
 
 // Contract: a provider block is validated against exactly one transport arm,
 // chosen by `transport` ("cli" → CLI arm, omitted/"http" → HTTP arm), and each
@@ -224,5 +224,59 @@ describe("CLI bin and authPath", () => {
     ["/a\u0007b.json", "authPath must not contain control characters"],
   ])("rejects authPath %j", (authPath, message) => {
     expect(validationLines(cli({ authPath }))).toEqual([`  • providers.g.authPath: ${message}`]);
+  });
+});
+
+// Contract: `serve` prints exactly one note line per resolved CLI provider and
+// nothing for HTTP-only configs.
+describe("formatCliProviderStartupNote", () => {
+  it("prints one line per CLI provider and skips HTTP providers", () => {
+    const cfg = loadConfigFromJson(
+      JSON.stringify(
+        panel({
+          "grok-sub": { transport: "cli", driver: "grok" },
+          openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "K" },
+          "claude-sub": { transport: "cli", driver: "claude" },
+        }),
+      ),
+      "test",
+      { env: { K: "k" } },
+    );
+    const tail =
+      "resolved. No process is spawned. Calls fail until a driver is registered; HTTP providers are unaffected.";
+    expect(formatCliProviderStartupNote(cfg)).toBe(
+      `ai-consensus-mcp: CLI provider "grok-sub" (driver grok) ${tail}\n` +
+        `ai-consensus-mcp: CLI provider "claude-sub" (driver claude) ${tail}\n`,
+    );
+  });
+
+  it("returns an empty string for an HTTP-only config", () => {
+    const cfg = loadConfigFromJson(
+      JSON.stringify(panel({ openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "K" } })),
+      "test",
+      { env: { K: "k" } },
+    );
+    expect(formatCliProviderStartupNote(cfg)).toBe("");
+  });
+});
+
+// Contract: an explicit `defaults.cliMaxInFlight` is kept as written (not
+// replaced by the CLI default of 2), and only 1-4 is accepted.
+describe("defaults.cliMaxInFlight", () => {
+  const withCap = (cliMaxInFlight: number) => ({
+    ...(panel({ g: { transport: "cli", driver: "grok" } }) as object),
+    defaults: { cliMaxInFlight },
+  });
+
+  it.each([1, 3, 4])("keeps an explicit %i", (cap) => {
+    const cfg = loadConfigFromJson(JSON.stringify(withCap(cap)), "test", { env: {} });
+    expect(cfg.defaults.cliMaxInFlight).toBe(cap);
+  });
+
+  it.each([
+    [0, "Number must be greater than or equal to 1"],
+    [5, "Number must be less than or equal to 4"],
+  ])("rejects %i", (cap, message) => {
+    expect(validationLines(withCap(cap))).toEqual([`  • defaults.cliMaxInFlight: ${message}`]);
   });
 });
