@@ -8,6 +8,7 @@ import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:c
 import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { ModelCallResponse } from "ai-consensus-core";
 import { buildChildEnv } from "./env.js";
 import { abortException } from "./gate.js";
@@ -117,10 +118,12 @@ function mapSpawnError(
   return new Error(`cli driver ${args.driver} failed to spawn: ${message}`);
 }
 
-function chunkToString(chunk: unknown): string {
+// One decoder per stream. Decoding each chunk on its own turns a multibyte
+// character that straddles a pipe read into U+FFFD.
+function chunkToString(decoder: StringDecoder, chunk: unknown): string {
   if (typeof chunk === "string") return chunk;
-  if (Buffer.isBuffer(chunk)) return chunk.toString("utf8");
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8");
+  if (Buffer.isBuffer(chunk)) return decoder.write(chunk);
+  if (chunk instanceof Uint8Array) return decoder.write(Buffer.from(chunk));
   return String(chunk);
 }
 
@@ -181,6 +184,7 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
       return undefined;
     };
     let cancelTimer: () => void = clearNothing;
+    const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
 
     const finish = (fn: () => void) => {
       if (settled) return;
@@ -201,7 +205,7 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
     }
 
     const takeChunk = (which: "stdout" | "stderr", chunk: unknown) => {
-      const text = chunkToString(chunk);
+      const text = chunkToString(decoders[which], chunk);
       if (which === "stdout") stdout += text;
       else stderr += text;
       const length = which === "stdout" ? stdout.length : stderr.length;
@@ -227,6 +231,8 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
     });
     child.on("close", (code: number | null) => {
       finish(() => {
+        stdout += decoders.stdout.end();
+        stderr += decoders.stderr.end();
         resolve({
           stdout,
           stderr,
