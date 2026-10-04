@@ -355,11 +355,11 @@ describe("CLI provider resolve", () => {
     await expect(loadConfig(path)).rejects.toThrow(/baseUrl/);
   });
 
-  it("rejects an unknown key beside baseUrl", async () => {
+  it("rejects a CLI-only key beside baseUrl", async () => {
     const bad = structuredClone(VALID_CONFIG);
-    (bad.providers.anthropic as Record<string, unknown>).typo = true;
+    (bad.providers.anthropic as Record<string, unknown>).driver = "claude";
     const path = await writeConfig(bad);
-    await expect(loadConfig(path)).rejects.toThrow(/typo/);
+    await expect(loadConfig(path)).rejects.toThrow(/providers\.anthropic\.driver/);
   });
 
   it("rejects CLI providers when allowCli is false and still loads HTTP-only configs", async () => {

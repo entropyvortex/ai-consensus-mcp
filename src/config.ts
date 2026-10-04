@@ -15,17 +15,33 @@ import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
-// Each transport arm is strict so a typo beside `driver` or `baseUrl` fails
-// validation instead of being stripped. Omitted `transport` stays HTTP: the
-// HTTP arm does not inject a default, so existing files round-trip unchanged.
-const HttpProviderConfigSchema = z
-  .object({
-    transport: z.literal("http").optional(),
-    baseUrl: z.string().url(),
-    apiKeyEnv: z.string().min(1),
-    extraHeaders: z.record(z.string(), z.string()).optional(),
-  })
-  .strict();
+// A key that only means something on a CLI provider. On the HTTP arm it
+// signals a block that was meant to be `transport: "cli"`, so it is rejected
+// with that hint instead of being stripped.
+function cliOnlyKey(key: string) {
+  return z
+    .never({
+      message: `"${key}" is only valid on a CLI provider; add "transport": "cli" or remove "${key}"`,
+    })
+    .optional();
+}
+
+// The HTTP arm is not strict: like main, it strips unknown keys so existing
+// files that carry e.g. "name" or "$comment" keep loading. Omitted `transport`
+// stays HTTP and no default is injected, so files round-trip unchanged.
+const HttpProviderConfigSchema = z.object({
+  transport: z.literal("http").optional(),
+  baseUrl: z.string().url(),
+  apiKeyEnv: z.string().min(1),
+  extraHeaders: z.record(z.string(), z.string()).optional(),
+  driver: cliOnlyKey("driver"),
+  bin: cliOnlyKey("bin"),
+  timeoutMs: cliOnlyKey("timeoutMs"),
+  authPath: cliOnlyKey("authPath"),
+});
+
+// The CLI arm is new, so it is strict: a typo beside `driver` fails instead of
+// being stripped.
 
 const CliProviderConfigSchema = z
   .object({

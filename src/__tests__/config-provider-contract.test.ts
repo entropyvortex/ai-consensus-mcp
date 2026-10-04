@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { formatZodError, loadConfigFromJson } from "../config.js";
 
@@ -66,5 +66,60 @@ describe("provider validation messages", () => {
       "  • a.b: Expected string, received boolean",
       "  • a.b: Expected number, received boolean",
     ]);
+  });
+});
+
+// Contract (back-compat): the HTTP arm strips unknown keys exactly like main,
+// so existing files keep loading; it rejects only the CLI-only keys, which
+// signal a block that was meant to be `transport: "cli"`.
+describe("HTTP provider back-compat", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("loads a main-era HTTP provider carrying extra descriptive keys", () => {
+    vi.stubEnv("OPENAI_KEY", "k");
+    const cfg = loadConfigFromJson(
+      JSON.stringify(
+        panel({
+          openai: {
+            baseUrl: "https://api.openai.com/v1",
+            apiKeyEnv: "OPENAI_KEY",
+            name: "OpenAI",
+            $comment: "kept from an older template",
+          },
+        }),
+      ),
+      "test",
+    );
+    expect(cfg.providers["openai"]).toEqual({
+      id: "openai",
+      transport: "http",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: "k",
+      extraHeaders: {},
+    });
+  });
+
+  it("rejects each CLI-only key on an HTTP provider with a transport hint", () => {
+    expect(
+      validationLines(
+        panel({
+          xai: {
+            baseUrl: "https://api.x.ai/v1",
+            apiKeyEnv: "GROK_API_KEY",
+            driver: "grok",
+            bin: "grok",
+            timeoutMs: 5_000,
+            authPath: "/a.json",
+          },
+        }),
+      ),
+    ).toEqual(
+      ["driver", "bin", "timeoutMs", "authPath"].map(
+        (key) =>
+          `  • providers.xai.${key}: "${key}" is only valid on a CLI provider; add "transport": "cli" or remove "${key}"`,
+      ),
+    );
   });
 });
