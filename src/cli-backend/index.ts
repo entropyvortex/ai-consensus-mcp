@@ -5,6 +5,7 @@ import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider, ResolvedProvider } from "../config.js";
 import { probeGrok, runGrok } from "./drivers/grok.js";
 import { abortException } from "./gate.js";
+import { assertCliPlatform } from "./runner.js";
 import type {
   CliRuntimeDeps,
   ReadinessState,
@@ -118,6 +119,7 @@ export async function probeCliProviders(args: {
   scheduleTimeout?: ScheduleTimeout;
   log?: (line: string) => void;
   homedir?: () => string;
+  platform?: NodeJS.Platform;
 }): Promise<string> {
   const cliProviders = Object.values(args.providers).filter(
     (provider): provider is ResolvedCliProvider => provider.transport === "cli",
@@ -126,6 +128,12 @@ export async function probeCliProviders(args: {
   const env = args.env ?? process.env;
   if (env["CONSENSUS_DISABLE_CLI"] === "1") {
     return "ai-consensus-mcp: CLI transports are disabled by CONSENSUS_DISABLE_CLI\n";
+  }
+  try {
+    assertCliPlatform(args.platform);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `ai-consensus-mcp: cli readiness failed: ${message}\n`;
   }
   const deps: CliRuntimeDeps = {
     env,

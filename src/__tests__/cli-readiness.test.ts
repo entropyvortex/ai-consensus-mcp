@@ -177,4 +177,33 @@ describe("cli readiness", () => {
     expect(note).toContain("cannot locate the grok auth file");
     expect(note).toContain("GROK_HOME");
   });
+
+  it("refuses CLI seats on Windows at call and probe time without spawning", async () => {
+    // Contract: process-group kill, 0600 prompt files and the env allowlist
+    // are Unix-only, so win32 fails clearly instead of half-working.
+    let spawns = 0;
+    const spawnImpl = () => {
+      spawns += 1;
+      return fake();
+    };
+    const call = createConsensusCaller({
+      providers: { "grok-sub": provider() },
+      providerByParticipant: { p1: "grok-sub" },
+      cliGate: new CliGate(2),
+      readinessCache: new Map([["grok-sub", { ok: true }]]),
+      env: { HOME: "/home/t" },
+      platform: "win32",
+      spawnImpl,
+      log: () => undefined,
+    });
+    await expect(call(request("p1"))).rejects.toThrow("CLI transport is not supported on Windows");
+    const note = await probeCliProviders({
+      providers: { "grok-sub": provider() },
+      env: { HOME: "/home/t" },
+      platform: "win32",
+      spawnImpl,
+    });
+    expect(note).toContain("CLI transport is not supported on Windows");
+    expect(spawns).toBe(0);
+  });
 });

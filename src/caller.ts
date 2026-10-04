@@ -14,6 +14,7 @@ import {
   type CliRuntimeDeps,
 } from "./cli-backend/index.js";
 import { abortException, type CliGate } from "./cli-backend/gate.js";
+import { assertCliPlatform } from "./cli-backend/runner.js";
 import type { ResolvedProvider } from "./config.js";
 
 export interface McpServerDeps extends CliRuntimeDeps {
@@ -62,6 +63,8 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       throw new Error("CLI transports are disabled by CONSENSUS_DISABLE_CLI");
     }
 
+    assertCliPlatform(opts.platform);
+
     const driver = getRegisteredDriver(provider.driver);
     if (!driver) {
       throw new Error(`cli driver "${provider.driver}" is not registered`);
@@ -89,6 +92,7 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       now: opts.now,
       killGraceMs: opts.killGraceMs,
       homedir: opts.homedir,
+      platform: opts.platform,
     };
     await ensureCliReady(driver, provider, runtime, req.signal);
 

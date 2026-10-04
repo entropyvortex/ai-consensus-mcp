@@ -48,6 +48,16 @@ export interface CliRuntimeDeps {
   killGraceMs?: number;
   /** Home-dir lookup used when HOME is unset. Defaults to os.homedir. */
   homedir?: () => string;
+  /** Platform check override for tests. Defaults to process.platform. */
+  platform?: NodeJS.Platform;
+}
+
+export const CLI_UNSUPPORTED_ON_WINDOWS =
+  "CLI transport is not supported on Windows: process-group kill, the 0600 prompt file and the child env allowlist are Unix-only. Use an http provider.";
+
+/** Throws on win32, where the runner's process and file guarantees do not hold. */
+export function assertCliPlatform(platform: NodeJS.Platform = process.platform): void {
+  if (platform === "win32") throw new Error(CLI_UNSUPPORTED_ON_WINDOWS);
 }
 
 export interface SpawnCapturedArgs {
