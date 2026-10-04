@@ -36,7 +36,7 @@ const EXACT_ALLOWLIST: ReadonlySet<string> = new Set([
 
 const LOCALE_KEY = /^LC_[A-Z0-9_]+$/;
 
-export function isAllowedChildEnvKey(key: string): boolean {
+function isAllowedChildEnvKey(key: string): boolean {
   return EXACT_ALLOWLIST.has(key) || LOCALE_KEY.test(key);
 }
 

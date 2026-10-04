@@ -138,7 +138,7 @@ export async function runGrok(
     loginCommand: GROK_LOGIN,
     stdin: "ignore",
     disableGrokAutoupdater: true,
-    ownedFiles: ["prompt.txt"],
+    ownedFiles: [],
     buildArgv: ({ scratchDir, promptPath }) =>
       buildGrokArgv({ scratchDir, promptPath, modelId: req.modelId }),
   });

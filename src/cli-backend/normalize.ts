@@ -7,7 +7,7 @@
 
 import { extractConfidence, extractJudgeConfidence, type TokenUsage } from "ai-consensus-core";
 
-export const ORACLE_JSON_SCHEMA = {
+const ORACLE_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["answer", "confidence"],
@@ -20,7 +20,6 @@ export const ORACLE_JSON_SCHEMA = {
 export const ORACLE_JSON_SCHEMA_TEXT = JSON.stringify(ORACLE_JSON_SCHEMA);
 
 export const CAPTURE_CHAR_CAP = 2_000_000;
-export const ARGV_ELEMENT_BYTE_CAP = 131_071;
 
 export type ConfidenceSource = "structured" | "prose" | "defaulted";
 

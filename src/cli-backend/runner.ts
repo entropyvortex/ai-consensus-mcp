@@ -128,11 +128,6 @@ function mapSpawnError(
       `cli driver ${args.driver}: "${args.bin}" was not found. Install ${args.installUrl} and run ${args.loginCommand}. HTTP participants in this panel are unaffected.`,
     );
   }
-  if (code === "E2BIG") {
-    return new Error(
-      `cli driver ${args.driver}: argument list too long (E2BIG). Each argv element must stay under 131071 bytes on this Linux.`,
-    );
-  }
   const message = err instanceof Error ? err.message : String(err);
   return new Error(`cli driver ${args.driver} failed to spawn: ${message}`);
 }

@@ -643,7 +643,7 @@ describe("cli backend grok oracle", () => {
     await expect(caller(request("p1"))).rejects.toThrow(/grok login/);
   });
 
-  it("maps E2BIG to a seat error that names the 131071-byte limit", async () => {
+  it("maps any other spawn error to a seat error without waiting for the timer", async () => {
     let fired = false;
     const { caller } = harness({
       scheduleTimeout: (_ms, cb) => {
@@ -669,7 +669,7 @@ describe("cli backend grok oracle", () => {
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(DOMException);
     expect((caught as Error).name).not.toBe("AbortError");
-    expect((caught as Error).message).toContain("131071");
+    expect((caught as Error).message).toContain("cli driver grok failed to spawn");
     expect((caught as Error).message).toContain("E2BIG");
   });
 

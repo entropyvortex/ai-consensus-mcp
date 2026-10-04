@@ -167,5 +167,5 @@ export async function probeCliProviders(args: {
 export { CliGate, abortException } from "./gate.js";
 export { buildChildEnv } from "./env.js";
 export { GROK_SYSTEM_OVERRIDE, GROK_INSTALL_URL, GROK_LOGIN } from "./drivers/grok.js";
-export { ORACLE_JSON_SCHEMA_TEXT, ORACLE_JSON_SCHEMA } from "./normalize.js";
+export { ORACLE_JSON_SCHEMA_TEXT } from "./normalize.js";
 export type { CliRuntimeDeps, ReadinessState, SpawnLike } from "./runner.js";
