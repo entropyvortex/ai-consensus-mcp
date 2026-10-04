@@ -242,8 +242,7 @@ describe("formatCliProviderStartupNote", () => {
       "test",
       { env: { K: "k" } },
     );
-    const tail =
-      "resolved. No process is spawned. Calls fail until a driver is registered; HTTP providers are unaffected.";
+    const tail = "resolved. HTTP providers in this process are unaffected.";
     expect(formatCliProviderStartupNote(cfg)).toBe(
       `ai-consensus-mcp: CLI provider "grok-sub" (driver grok) ${tail}\n` +
         `ai-consensus-mcp: CLI provider "claude-sub" (driver claude) ${tail}\n`,

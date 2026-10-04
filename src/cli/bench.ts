@@ -13,6 +13,7 @@
 import { writeFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import type { ConsensusOptions, ModelCaller } from "ai-consensus-core";
+import { CliGate, probeCliProviders, type ReadinessState } from "../cli-backend/index.js";
 import { loadConfig, type LoadedConfig } from "../config.js";
 import { createConsensusCaller } from "../caller.js";
 import { BUILT_IN_PRESETS } from "../presets/definitions/index.js";
@@ -286,6 +287,18 @@ export async function runBench(argv: readonly string[]): Promise<number> {
     return 2;
   }
 
+  // One gate for this bench process. A bench process and a serve process do
+  // not share a gate; they are different OS processes.
+  const cliGate = new CliGate(config.defaults.cliMaxInFlight ?? 2);
+  const readinessCache = new Map<string, ReadinessState>();
+  const readinessNote = await probeCliProviders({
+    providers: config.providers,
+    cache: readinessCache,
+  });
+  if (readinessNote !== "") {
+    process.stderr.write(readinessNote);
+  }
+
   const registry: PresetRegistry = createRegistry(BUILT_IN_PRESETS);
   const panel = registry.get(parsed.panelId);
   if (!panel) {
@@ -377,6 +390,8 @@ export async function runBench(argv: readonly string[]): Promise<number> {
   const caller: ModelCaller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant,
+    cliGate,
+    readinessCache,
   });
 
   // Held-out contract warnings — the bench will still run, but a reviewer

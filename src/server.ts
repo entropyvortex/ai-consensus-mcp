@@ -20,7 +20,7 @@ import {
   type Participant,
 } from "ai-consensus-core";
 import type { LoadedConfig, ResolvedDefaults } from "./config.js";
-import { createConsensusCaller } from "./caller.js";
+import { createConsensusCaller, type McpServerDeps } from "./caller.js";
 import { wireEngineProgress } from "./progress.js";
 import { BUILT_IN_PRESETS } from "./presets/definitions/index.js";
 import { createRegistry, type PresetRegistry } from "./presets/registry.js";
@@ -149,7 +149,11 @@ const CONSENSUS_INPUT_JSON_SCHEMA = {
 
 // ── Factory ──────────────────────────────────────────────────
 
-export function createMcpServer(config: LoadedConfig): Server {
+// Does not construct a CliGate. The process owner (runServe, bench, or the
+// Node HTTP listener) builds one gate and passes that same object here so
+// overlapping requests share the cap. Workers omit it; they reject CLI
+// providers before any call.
+export function createMcpServer(config: LoadedConfig, deps?: McpServerDeps): Server {
   const server = new Server(
     { name: SERVER_NAME, version: SERVER_VERSION },
     { capabilities: { tools: {} } },
@@ -185,6 +189,7 @@ export function createMcpServer(config: LoadedConfig): Server {
     if (toolName === "consensus") {
       return runGenericConsensus({
         config,
+        deps,
         server,
         presets,
         memoryContext,
@@ -198,6 +203,7 @@ export function createMcpServer(config: LoadedConfig): Server {
       return runPresetConsensus({
         preset,
         config,
+        deps,
         server,
         presets,
         memoryContext,
@@ -228,6 +234,8 @@ export function createMcpServer(config: LoadedConfig): Server {
 
 interface DispatchArgs {
   config: LoadedConfig;
+  /** Process-wide CLI deps. Undefined on Workers and on HTTP-only tests. */
+  deps: McpServerDeps | undefined;
   /** Active MCP server instance. */
   server: Server;
   /** Panel/preset registry — used by `panel` arg resolution on the generic tool. */
@@ -321,6 +329,7 @@ async function runGenericConsensus(args: DispatchArgs) {
   const caller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant,
+    ...(args.deps ?? {}),
   });
 
   const engine = new ConsensusEngine(caller);
@@ -400,6 +409,7 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
   const caller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant: resolved.providerByParticipant,
+    ...(args.deps ?? {}),
   });
 
   const engine = new ConsensusEngine(caller);

@@ -1,0 +1,152 @@
+// Grok subscription oracle. Flags are the executed 1.0.46 text set:
+// dontAsk, no subagents, no web search, max-turns 2, no plan, verbatim.
+// No --sandbox, no --tools, no --always-approve, no --worktree, no
+// bypassPermissions. The transcript lives in the scratch prompt file.
+
+import { access } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
+import type { ResolvedCliProvider } from "../../config.js";
+import { buildChildEnv } from "../env.js";
+import { ORACLE_JSON_SCHEMA_TEXT } from "../normalize.js";
+import { runOracle, spawnCaptured, type CliRuntimeDeps, type ReadinessState } from "../runner.js";
+
+export const GROK_SYSTEM_OVERRIDE =
+  "You are a text-only consensus oracle. Obey the prompt file exactly. Do not use tools, do not edit files, do not browse.";
+
+export const GROK_INSTALL_URL = "https://x.ai/cli";
+export const GROK_LOGIN = "grok login";
+
+const VERSION_TIMEOUT_MS = 15_000;
+
+export function grokAuthPath(authPath: string | undefined, env: NodeJS.ProcessEnv): string {
+  if (authPath) return authPath;
+  const grokHome = env["GROK_HOME"];
+  if (grokHome) return join(grokHome, "auth.json");
+  const home = env["HOME"] ?? "";
+  return join(home, ".grok", "auth.json");
+}
+
+export function buildGrokArgv(args: {
+  scratchDir: string;
+  promptPath: string;
+  modelId: string;
+}): string[] {
+  return [
+    "--no-alt-screen",
+    "--no-subagents",
+    "--disable-web-search",
+    "--verbatim",
+    "--permission-mode",
+    "dontAsk",
+    "--output-format",
+    "json",
+    "--json-schema",
+    ORACLE_JSON_SCHEMA_TEXT,
+    "--cwd",
+    args.scratchDir,
+    "--max-turns",
+    "2",
+    "--prompt-file",
+    args.promptPath,
+    "--system-prompt-override",
+    GROK_SYSTEM_OVERRIDE,
+    "-m",
+    args.modelId,
+    "--no-plan",
+  ];
+}
+
+function isAbort(err: unknown): boolean {
+  return (
+    (err instanceof DOMException || err instanceof Error) &&
+    (err as { name?: string }).name === "AbortError"
+  );
+}
+
+function cacheFailure(
+  cache: Map<string, ReadinessState> | undefined,
+  id: string,
+  err: unknown,
+): void {
+  if (!cache || isAbort(err)) return;
+  const message = err instanceof Error ? err.message : String(err);
+  cache.set(id, { ok: false, message });
+}
+
+export async function probeGrok(
+  provider: ResolvedCliProvider,
+  deps: CliRuntimeDeps,
+  signal?: AbortSignal,
+): Promise<void> {
+  const cache = deps.readinessCache;
+  const cached = cache?.get(provider.id);
+  if (cached) {
+    if (!cached.ok) throw new Error(cached.message);
+    return;
+  }
+  const parent = deps.env ?? process.env;
+  try {
+    const captured = await spawnCaptured({
+      driver: "grok",
+      bin: provider.bin,
+      argv: ["--version"],
+      cwd: tmpdir(),
+      env: buildChildEnv(parent, { disableGrokAutoupdater: true }),
+      stdin: "ignore",
+      timeoutMs: VERSION_TIMEOUT_MS,
+      signal,
+      spawnImpl: deps.spawnImpl,
+      scheduleTimeout: deps.scheduleTimeout,
+      now: deps.now,
+      installUrl: GROK_INSTALL_URL,
+      loginCommand: GROK_LOGIN,
+    });
+    if (captured.exitCode !== 0) {
+      throw new Error(
+        `cli driver grok: "${provider.bin} --version" failed (exit ${captured.exitCode ?? "null"}). Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
+      );
+    }
+    const authPath = grokAuthPath(provider.authPath, parent);
+    const accessImpl = deps.accessImpl ?? access;
+    try {
+      await accessImpl(authPath);
+    } catch {
+      throw new Error(
+        `cli driver grok: not signed in. Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
+      );
+    }
+    cache?.set(provider.id, { ok: true });
+  } catch (err) {
+    cacheFailure(cache, provider.id, err);
+    throw err;
+  }
+}
+
+export async function runGrok(
+  provider: ResolvedCliProvider,
+  req: ModelCallRequest,
+  deps: CliRuntimeDeps,
+): Promise<ModelCallResponse> {
+  return runOracle({
+    driver: "grok",
+    bin: provider.bin,
+    providerId: provider.id,
+    participantId: req.participantId,
+    round: req.round,
+    system: req.system,
+    user: req.user,
+    timeoutMs: provider.timeoutMs,
+    signal: req.signal,
+    parentEnv: deps.env ?? process.env,
+    deps,
+    installUrl: GROK_INSTALL_URL,
+    loginCommand: GROK_LOGIN,
+    stdin: "ignore",
+    disableGrokAutoupdater: true,
+    ownedFiles: ["prompt.txt"],
+    buildArgv: ({ scratchDir, promptPath }) =>
+      buildGrokArgv({ scratchDir, promptPath, modelId: req.modelId }),
+  });
+}

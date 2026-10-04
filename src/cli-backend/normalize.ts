@@ -1,0 +1,233 @@
+// Confidence normalization for CLI oracles.
+// The engine scores the first `confidence:` hit. Structured confidence wins
+// over answer text, so marker-like phrases in the body are neutralized and
+// the only real marker is the trailer we append. participantId "judge"
+// selects JUDGE_CONFIDENCE. Phase "synthesis" does not: participant rounds
+// use that phase too.
+
+import { extractConfidence, extractJudgeConfidence, type TokenUsage } from "ai-consensus-core";
+
+export const ORACLE_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["answer", "confidence"],
+  properties: {
+    answer: { type: "string" },
+    confidence: { type: "integer", minimum: 0, maximum: 100 },
+  },
+} as const;
+
+export const ORACLE_JSON_SCHEMA_TEXT = JSON.stringify(ORACLE_JSON_SCHEMA);
+
+export const CAPTURE_CHAR_CAP = 2_000_000;
+export const ARGV_ELEMENT_BYTE_CAP = 131_071;
+
+export type ConfidenceSource = "structured" | "prose" | "defaulted";
+
+export interface NormalizedCli {
+  content: string;
+  source: ConfidenceSource;
+  usage?: TokenUsage;
+}
+
+interface ExtractedAnswer {
+  answer: string;
+  structured: boolean;
+  rawConfidence: unknown;
+  isError: boolean;
+  errorDetail: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+export function parseCliJson(stdout: string): unknown {
+  const trimmed = stdout.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    // Grok sometimes prefixes a log line. Take the outermost object.
+  }
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function extractAnswer(stdout: string): ExtractedAnswer {
+  const parsed = parseCliJson(stdout);
+  const obj = asRecord(parsed);
+  if (!obj) {
+    return {
+      answer: stdout,
+      structured: false,
+      rawConfidence: undefined,
+      isError: false,
+      errorDetail: "",
+    };
+  }
+  const subtype = typeof obj["subtype"] === "string" ? obj["subtype"] : "";
+  const isError = obj["is_error"] === true || subtype.startsWith("error");
+  const errorDetail = subtype || (typeof obj["error"] === "string" ? obj["error"] : "");
+
+  const structuredRaw = obj["structured_output"] ?? obj["structuredOutput"];
+  const structuredRec = asRecord(structuredRaw);
+  if (structuredRec && typeof structuredRec["answer"] === "string") {
+    return {
+      answer: structuredRec["answer"],
+      structured: true,
+      rawConfidence: structuredRec["confidence"],
+      isError,
+      errorDetail,
+    };
+  }
+
+  if (typeof obj["answer"] === "string") {
+    return {
+      answer: obj["answer"],
+      structured: true,
+      rawConfidence: obj["confidence"],
+      isError,
+      errorDetail,
+    };
+  }
+
+  if (typeof obj["result"] === "string") {
+    return {
+      answer: obj["result"],
+      structured: false,
+      rawConfidence: undefined,
+      isError,
+      errorDetail,
+    };
+  }
+  if (typeof obj["text"] === "string") {
+    return {
+      answer: obj["text"],
+      structured: false,
+      rawConfidence: undefined,
+      isError,
+      errorDetail,
+    };
+  }
+  return {
+    answer: stdout,
+    structured: false,
+    rawConfidence: undefined,
+    isError,
+    errorDetail,
+  };
+}
+
+function firstNumber(rec: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = rec[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function readUsage(payload: unknown): TokenUsage | undefined {
+  const obj = asRecord(payload);
+  if (!obj) return undefined;
+  const nests = [obj["usage"], obj];
+  for (const nest of nests) {
+    const rec = asRecord(nest);
+    if (!rec) continue;
+    const input = firstNumber(rec, ["input_tokens", "inputTokens", "prompt_tokens"]);
+    const output = firstNumber(rec, ["output_tokens", "outputTokens", "completion_tokens"]);
+    if (input === undefined || output === undefined) continue;
+    const total = firstNumber(rec, ["total_tokens", "totalTokens"]) ?? input + output;
+    return { inputTokens: input, outputTokens: output, totalTokens: total };
+  }
+  return undefined;
+}
+
+function roleFor(participantId: string): "judge" | "participant" {
+  return participantId === "judge" ? "judge" : "participant";
+}
+
+function structuredConfidence(raw: unknown): { n: number; reason?: "missing" | "invalid" } {
+  if (raw === undefined || raw === null) return { n: 50, reason: "missing" };
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0 || raw > 100) {
+    return { n: 50, reason: "invalid" };
+  }
+  return { n: raw };
+}
+
+function proseConfidence(
+  answer: string,
+  role: "judge" | "participant",
+): { n: number; source: "prose" | "defaulted"; reason?: "unstructured" } {
+  if (role === "judge") {
+    if (answer.toLowerCase().includes("judge_confidence:")) {
+      return { n: extractJudgeConfidence(answer), source: "prose" };
+    }
+    return { n: 50, source: "defaulted", reason: "unstructured" };
+  }
+  if (answer.toLowerCase().includes("confidence:")) {
+    return { n: extractConfidence(answer), source: "prose" };
+  }
+  return { n: 50, source: "defaulted", reason: "unstructured" };
+}
+
+function neutralize(answer: string): string {
+  return answer.replace(/confidence\s*:/gi, "confidence —");
+}
+
+export function normalizeCliStdout(args: {
+  driver: string;
+  participantId: string;
+  round: number;
+  stdout: string;
+  log: (line: string) => void;
+}): NormalizedCli {
+  const extracted = extractAnswer(args.stdout);
+  if (extracted.isError) {
+    const detail = extracted.errorDetail ? `: ${extracted.errorDetail}` : "";
+    throw new Error(`cli driver ${args.driver} returned an error result${detail}`);
+  }
+  if (extracted.answer.trim() === "") {
+    throw new Error(`cli driver ${args.driver} returned an empty answer`);
+  }
+
+  const role = roleFor(args.participantId);
+  let n = 50;
+  let source: ConfidenceSource = "defaulted";
+  let reason: "missing" | "invalid" | "unstructured" | undefined;
+  if (extracted.structured) {
+    const parsed = structuredConfidence(extracted.rawConfidence);
+    n = parsed.n;
+    if (parsed.reason) {
+      source = "defaulted";
+      reason = parsed.reason;
+    } else {
+      source = "structured";
+    }
+  } else {
+    const parsed = proseConfidence(extracted.answer, role);
+    n = parsed.n;
+    source = parsed.source;
+    reason = parsed.reason;
+  }
+
+  if (source === "defaulted" && reason) {
+    args.log(
+      `ai-consensus-mcp: cli confidence defaulted participant=${args.participantId} round=${args.round} driver=${args.driver} reason=${reason}\n`,
+    );
+  }
+
+  const body = neutralize(extracted.answer);
+  const trailer = role === "judge" ? `\nJUDGE_CONFIDENCE: ${n}` : `\nCONFIDENCE: ${n}`;
+  const usage = readUsage(parseCliJson(args.stdout));
+  return { content: `${body}${trailer}`, source, ...(usage ? { usage } : {}) };
+}

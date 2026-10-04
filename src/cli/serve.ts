@@ -12,9 +12,11 @@
 // clients (Grok custom connectors, etc.). See docs and examples/.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CliGate, probeCliProviders, type ReadinessState } from "../cli-backend/index.js";
 import { formatCliProviderStartupNote, loadConfig } from "../config.js";
 import { parseList } from "../http/host.js";
 import { startNodeHttpServer } from "../http/node-server.js";
+import type { McpServerDeps } from "../caller.js";
 import { createMcpServer } from "../server.js";
 import { SERVER_NAME } from "../version.js";
 
@@ -229,17 +231,31 @@ export async function runServe(argv: readonly string[]): Promise<number> {
 
   const config = await loadConfig(configPath);
   process.stderr.write(formatCliProviderStartupNote(config));
-
   if (parsed.http) {
     const refusal = httpCliRefusal(config, parsed);
     if (refusal) {
       process.stderr.write(refusal);
       return 2;
     }
-    return runServeHttp(config, parsed);
   }
 
-  return runServeStdio(config);
+  // One gate and one readiness cache for this OS process, shared by every MCP
+  // server it creates: the stdio server, or each stateless HTTP request.
+  // createMcpServer never constructs its own.
+  const readinessCache = new Map<string, ReadinessState>();
+  const runtime: McpServerDeps = {
+    cliGate: new CliGate(config.defaults.cliMaxInFlight ?? 2),
+    readinessCache,
+  };
+  const readinessNote = await probeCliProviders({
+    providers: config.providers,
+    cache: readinessCache,
+  });
+  if (readinessNote !== "") {
+    process.stderr.write(readinessNote);
+  }
+
+  return parsed.http ? runServeHttp(config, parsed, runtime) : runServeStdio(config, runtime);
 }
 
 /**
@@ -263,7 +279,10 @@ export function httpCliRefusal(
   );
 }
 
-async function runServeStdio(config: Awaited<ReturnType<typeof loadConfig>>): Promise<number> {
+async function runServeStdio(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  runtime: McpServerDeps,
+): Promise<number> {
   const summary =
     `${SERVER_NAME} ready — ${config.participants.length} participant(s) from ${
       Object.keys(config.providers).length
@@ -272,7 +291,7 @@ async function runServeStdio(config: Awaited<ReturnType<typeof loadConfig>>): Pr
     ` (config: ${config.sourcePath})`;
   process.stderr.write(`${summary}\n`);
 
-  const server = createMcpServer(config);
+  const server = createMcpServer(config, runtime);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
@@ -292,9 +311,11 @@ async function runServeStdio(config: Awaited<ReturnType<typeof loadConfig>>): Pr
 async function runServeHttp(
   config: Awaited<ReturnType<typeof loadConfig>>,
   args: ServeArgs,
+  runtime: McpServerDeps,
 ): Promise<number> {
   const handle = await startNodeHttpServer({
     config,
+    mcpServerDeps: runtime,
     host: args.host,
     port: args.port,
     path: args.path,

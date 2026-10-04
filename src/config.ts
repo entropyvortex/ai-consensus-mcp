@@ -141,7 +141,7 @@ const DefaultsSchema = z
     participantTemperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().optional(),
     useJudge: z.boolean().optional(),
-    /** In-flight cap for CLI seats. Ignored by HTTP-only panels. Gate lands in a later PR. */
+    /** In-flight cap for CLI seats. Ignored by HTTP-only panels. Default 2 when any provider is cli. */
     cliMaxInFlight: z.number().int().min(1).max(4).optional(),
   })
   .strict();
@@ -219,7 +219,8 @@ export interface ResolvedDefaults {
   useJudge: boolean;
   /**
    * Set when configured, or defaulted to 2 when any provider is transport cli.
-   * Undefined for HTTP-only configs that omit the key. No gate reads it yet.
+   * Undefined for HTTP-only configs that omit the key. runServe and bench
+   * pass it to the process CliGate.
    */
   cliMaxInFlight?: number;
 }
@@ -288,7 +289,7 @@ export function formatCliProviderStartupNote(config: LoadedConfig): string {
   for (const provider of Object.values(config.providers)) {
     if (provider.transport !== "cli") continue;
     lines.push(
-      `ai-consensus-mcp: CLI provider "${provider.id}" (driver ${provider.driver}) resolved. No process is spawned. Calls fail until a driver is registered; HTTP providers are unaffected.`,
+      `ai-consensus-mcp: CLI provider "${provider.id}" (driver ${provider.driver}) resolved. HTTP providers in this process are unaffected.`,
     );
   }
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
