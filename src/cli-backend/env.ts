@@ -24,6 +24,14 @@ const EXACT_ALLOWLIST: ReadonlySet<string> = new Set([
   "CURL_CA_BUNDLE",
   "REQUESTS_CA_BUNDLE",
   "GIT_SSL_CAINFO",
+  // Proxy settings. Without them a CLI behind a corporate proxy cannot
+  // reach its backend. Both spellings are in common use.
+  "HTTPS_PROXY",
+  "HTTP_PROXY",
+  "NO_PROXY",
+  "https_proxy",
+  "http_proxy",
+  "no_proxy",
 ]);
 
 const LOCALE_KEY = /^LC_[A-Z0-9_]+$/;
