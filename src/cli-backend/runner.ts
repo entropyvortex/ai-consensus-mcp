@@ -156,6 +156,51 @@ export function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals = "
   }
 }
 
+// Live CLI children, so a server shutdown can take their process groups
+// down with it. The children are detached (own group) for group kill, which
+// also means a Ctrl+C on the server would not reach them by itself.
+const liveChildren = new Set<ChildProcess>();
+const SHUTDOWN_SIGNALS: readonly NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+
+/** SIGKILLs the process group of every CLI child that is still running. */
+export function killLiveCliChildren(): void {
+  for (const child of liveChildren) killProcessGroup(child, "SIGKILL");
+}
+
+function onProcessExit(): void {
+  killLiveCliChildren();
+}
+
+function onShutdownSignal(signal: NodeJS.Signals): void {
+  killLiveCliChildren();
+  unhookShutdown();
+  // Another listener (runServe's shutdown) owns the exit. With none left,
+  // re-raise so the default action still terminates the process.
+  if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
+}
+
+function hookShutdown(): void {
+  process.on("exit", onProcessExit);
+  for (const signal of SHUTDOWN_SIGNALS) process.on(signal, onShutdownSignal);
+}
+
+function unhookShutdown(): void {
+  process.removeListener("exit", onProcessExit);
+  for (const signal of SHUTDOWN_SIGNALS) process.removeListener(signal, onShutdownSignal);
+}
+
+function trackChild(child: ChildProcess): void {
+  if (typeof child.pid !== "number") return;
+  if (liveChildren.size === 0) hookShutdown();
+  liveChildren.add(child);
+  const untrack = () => {
+    if (!liveChildren.delete(child)) return;
+    if (liveChildren.size === 0) unhookShutdown();
+  };
+  child.once("exit", untrack);
+  child.once("close", untrack);
+}
+
 /** SIGTERM to SIGKILL escalation delay when the caller does not set one. */
 export const DEFAULT_KILL_GRACE_MS = 2_000;
 /** After SIGKILL, how long to wait for `exit` before settling anyway. */
@@ -197,6 +242,7 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
   } catch (err) {
     throw mapSpawnError(err, args);
   }
+  trackChild(child);
 
   return new Promise<SpawnCapturedResult>((resolve, reject) => {
     let settled = false;

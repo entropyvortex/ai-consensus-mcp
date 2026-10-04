@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelCallRequest } from "ai-consensus-core";
 import { createConsensusCaller } from "../caller.js";
 import { CliGate, type ReadinessState } from "../cli-backend/index.js";
-import { runOracle, spawnCaptured } from "../cli-backend/runner.js";
+import { killLiveCliChildren, runOracle, spawnCaptured } from "../cli-backend/runner.js";
 import type { ResolvedCliProvider } from "../config.js";
 
 let dir = "";
@@ -244,6 +244,22 @@ describe.skipIf(process.platform === "win32")("cli runner with real child proces
     const grandchild = Number(readFileSync(join(dir, "grandchild"), "utf8"));
     spawnedPids.add(grandchild);
     await waitFor(() => !isAlive(grandchild));
+  });
+
+  it("kills live CLI process groups on server shutdown and unhooks after", async () => {
+    // Contract: while a CLI child runs, the runner holds exit, SIGINT and
+    // SIGTERM hooks that SIGKILL every live group, so a server shutdown
+    // never orphans a grok run. The hooks are removed once no child is live.
+    const hooks = () => ["exit", "SIGINT", "SIGTERM"].map((event) => process.listenerCount(event));
+    const baseline = hooks();
+    const bin = fakeBin("long", `note("ready " + process.pid); setInterval(() => {}, 1000);`);
+    const pending = caller(bin, { timeoutMs: 10_000 })(request("p1"));
+    await waitFor(() => notes().some((line) => line.startsWith("ready")));
+    expect(hooks()).toEqual(baseline.map((n) => n + 1));
+    killLiveCliChildren();
+    await expect(pending).rejects.toThrow(/signal SIGKILL/);
+    for (const pid of pids()) expect(isAlive(pid)).toBe(false);
+    expect(hooks()).toEqual(baseline);
   });
 });
 
