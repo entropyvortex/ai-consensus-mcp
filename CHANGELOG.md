@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — stateless Streamable HTTP transport (remote MCP clients)
+
+- `ai-consensus-mcp serve --http` (`--host`, `--port`, `--path`) and `createHttpHandler()` / `loadConfigFromJson()` from `ai-consensus-mcp/http` for Web Standard runtimes. A Cloudflare Workers example lives in `examples/cloudflare/`.
+- Secure defaults:
+  - A non-loopback bind without `CONSENSUS_HTTP_API_KEY` refuses to start unless you pass `--allow-unauthenticated`.
+  - Host and Origin are validated against DNS rebinding (`--allowed-hosts`, `--allowed-origins`).
+  - Batches containing `tools/call` are rejected.
+  - Concurrent tool calls are capped (`--max-concurrent-tool-calls`, default 4, HTTP 429 when exceeded). Prompt length and `maxOutputTokens` have ceilings.
+  - Methods other than POST get 405, and `/health` reports liveness only.
+- A dropped client connection aborts the upstream provider calls. On Workers this needs `enable_request_signal`, which the example's `wrangler.toml` sets.
+- CLI seats are disabled in HTTP mode unless you pass `--allow-cli`. With it, every HTTP request shares the process's single CLI in-flight gate (`cliMaxInFlight`). Workers reject CLI providers outright.
+
 ### Added — subscription CLI wizard, example, and bench estimate
 
 - The config wizard can add and edit `grok` and `claude` subscription providers. The HTTP form is never opened for a `transport: "cli"` id, so a save cannot rewrite that block into `baseUrl` + `apiKeyEnv`. Codex is not offered (not yet implemented), and editing an existing codex provider leaves the block unchanged. Switching a seat's driver does not carry over a `bin` that names another driver's binary. The `authPath` prompt is grok-only: it is the file checked for sign-in readiness.
