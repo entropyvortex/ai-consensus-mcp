@@ -72,6 +72,9 @@ function getHandler(env: Env): Handler {
 
   const config = loadConfigFromJson(env.CONSENSUS_CONFIG_JSON, "worker:CONSENSUS_CONFIG_JSON", {
     allowCli: false,
+    // Provider keys come from the Worker's bindings, not from whatever
+    // nodejs_compat happens to mirror into process.env.
+    env,
   });
   const options: HttpHandlerOptions = {
     mcpPath: env.MCP_PATH?.startsWith("/") ? env.MCP_PATH : `/${env.MCP_PATH ?? "mcp"}`,
