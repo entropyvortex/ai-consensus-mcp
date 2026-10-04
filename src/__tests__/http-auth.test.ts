@@ -148,3 +148,21 @@ describe("HTTP auth integration", () => {
     expect(await res.json()).toEqual({ status: "ok" });
   });
 });
+
+describe("verifyHttpAuth — comparison edge cases", () => {
+  const cfg = { apiKey: "correct-horse-battery-staple" };
+  const headers = (value: string) => new Headers({ authorization: `Bearer ${value}` });
+
+  it.each([
+    ["a strict prefix", "correct-horse"],
+    ["a longer superset", "correct-horse-battery-staple-and-more"],
+    ["same length, one byte off", "correct-horse-battery-staplf"],
+    ["multi-byte lookalike", "córrect-horse-battery-staple"],
+  ])("rejects %s of the key", (_label, presented) => {
+    expect(verifyHttpAuth(cfg, headers(presented))).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it("accepts the exact key", () => {
+    expect(verifyHttpAuth(cfg, headers("correct-horse-battery-staple"))).toEqual({ ok: true });
+  });
+});

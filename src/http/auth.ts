@@ -5,7 +5,7 @@
 // the same value via Authorization: Bearer <key> or X-Consensus-Api-Key.
 // Health probes (/health) stay unauthenticated for deploy checks.
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 /** Env var name for the shared HTTP endpoint secret. */
 export const HTTP_API_KEY_ENV = "CONSENSUS_HTTP_API_KEY";
@@ -60,15 +60,15 @@ function extractPresentedSecret(headers: HttpAuthHeaders): string | undefined {
   return undefined;
 }
 
+/**
+ * Constant-time comparison that leaks neither content nor length: both sides
+ * are hashed to fixed-size SHA-256 digests before timingSafeEqual, so the
+ * work done is independent of where (or whether) the inputs differ.
+ */
 function timingSafeSecretEqual(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a, "utf8");
-  const bBuf = Buffer.from(b, "utf8");
-  if (aBuf.length !== bBuf.length) {
-    // Compare against self so timing does not leak expected length.
-    timingSafeEqual(aBuf, aBuf);
-    return false;
-  }
-  return timingSafeEqual(aBuf, bBuf);
+  const aDigest = createHash("sha256").update(a, "utf8").digest();
+  const bDigest = createHash("sha256").update(b, "utf8").digest();
+  return timingSafeEqual(aDigest, bDigest);
 }
 
 export function unauthorizedResponse(reason: HttpAuthFailureReason): Response {
