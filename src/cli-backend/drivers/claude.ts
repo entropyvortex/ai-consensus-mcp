@@ -4,8 +4,10 @@
 // session persistence, empty setting sources.
 // No --bare (that forces API-key auth), no --max-turns (not in that help),
 // no bypassPermissions. The transcript is stdin, never an argv element.
-// Stdin-as-prompt is assumed until a smoke shows the CLI reads it. If stdin
-// is ignored, do not move the transcript onto argv.
+// Live check on 2.1.289 (claude.ai login, this exact argv, empty temp cwd):
+// stdin is read as the prompt, structured_output is returned with --tools ""
+// (num_turns 2, no permission denials), nothing is written to the cwd.
+// Never move the transcript onto argv.
 // Claude-only env: CLAUDE_CODE_OAUTH_TOKEN (subscription token from
 // `claude setup-token`) and CLAUDE_CONFIG_DIR are added on top of the shared
 // allowlist for claude children only, so other vendors' CLIs never see them.
