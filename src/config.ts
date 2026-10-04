@@ -334,7 +334,9 @@ export function resolveConfigFromRaw(
     if (cliId !== undefined) throw new Error(workersCliError(cliId));
   }
   const env = options?.env ?? process.env;
-  const providers: Record<string, ResolvedProvider> = {};
+  // No prototype: a participant naming "constructor" or "toString" must not
+  // resolve to an inherited Object.prototype member.
+  const providers = Object.create(null) as Record<string, ResolvedProvider>;
   for (const [id, cfg] of Object.entries(raw.providers)) {
     if (cfg.transport === "cli") {
       providers[id] = {

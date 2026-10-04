@@ -280,3 +280,33 @@ describe("defaults.cliMaxInFlight", () => {
     expect(validationLines(withCap(cap))).toEqual([`  • defaults.cliMaxInFlight: ${message}`]);
   });
 });
+
+// Contract: provider ids are looked up as own keys only, so names inherited
+// from Object.prototype are not mistaken for configured providers.
+describe("provider id lookup", () => {
+  it.each(["constructor", "toString", "__proto__"])(
+    "rejects a participant referencing undeclared provider %j",
+    (id) => {
+      const raw = {
+        providers: { openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "K" } },
+        participants: [
+          { id: "a", provider: "openai", modelId: "m", personaId: "pessimist" },
+          { id: "b", provider: id, modelId: "m", personaId: "domain-expert" },
+        ],
+      };
+      expect(() => loadConfigFromJson(JSON.stringify(raw), "test", { env: { K: "k" } })).toThrow(
+        `ai-consensus-mcp: participant "b" references unknown provider "${id}". Known: openai.`,
+      );
+    },
+  );
+
+  it('rejects a judge referencing undeclared provider "constructor"', () => {
+    const raw = {
+      ...(panel({ openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "K" } }) as object),
+      judge: { provider: "constructor", modelId: "m" },
+    };
+    expect(() => loadConfigFromJson(JSON.stringify(raw), "test", { env: { K: "k" } })).toThrow(
+      /judge references unknown provider "constructor"/,
+    );
+  });
+});
