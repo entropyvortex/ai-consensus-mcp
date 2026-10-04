@@ -254,6 +254,42 @@ describe("config wizard", () => {
     );
   });
 
+  // Contract: a CLI block whose driver the wizard does not offer (codex) is
+  // never rewritten by "edit". The wizard prints a note and leaves it as-is.
+  it("editing a codex provider leaves the block untouched and asks nothing", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    const path = join(dir, "consensus.config.json");
+    const raw = mixedPanel();
+    raw.providers["codex-sub"] = { transport: "cli", driver: "codex", bin: "codex" };
+    await writeRawConfig(path, raw);
+    const before = await readRawConfig(path);
+    const writes: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    script([
+      answer(/What would you like to do/, "providers"),
+      answer(/^Providers$/, "codex-sub"),
+      answer(/Provider "codex-sub"/, "edit"),
+      answer(/^Providers$/, "__back__"),
+      answer(/What would you like to do/, "save"),
+    ]);
+
+    expect(await runConfig(["--config", path])).toBe(0);
+    expect(prompts.queue).toEqual([]);
+    const after = await readRawConfig(path);
+    expect(after.providers["codex-sub"]).toEqual({
+      transport: "cli",
+      driver: "codex",
+      bin: "codex",
+    });
+    expect(after.providers).toEqual(before.providers);
+    expect(writes.join("")).toMatch(
+      /"codex-sub" uses driver "codex", which the wizard does not offer[\s\S]*left unchanged/,
+    );
+  });
+
   // Contract: accepting every default on an existing claude seat changes
   // nothing, including an authPath the wizard no longer prompts for.
   it("editing a claude provider with authPath and accepting defaults round-trips", async () => {

@@ -57,8 +57,9 @@ Flags:
 The editor walks you through every section — providers, participants,
 judge, defaults — with inline help and validation. Providers are HTTP
 by default. A CLI subscription seat (grok or claude) is a separate form
-and is never rewritten into baseUrl + apiKeyEnv. Codex is not offered;
-that driver is refused until exec --help matches. The whole config is
+and is never rewritten into baseUrl + apiKeyEnv. Codex is not offered:
+it is not yet implemented, and an existing codex block is left unchanged
+by "Edit". The whole config is
 checked against the Zod schema before saving; you can quit without
 saving at any time.
 `;
@@ -522,9 +523,9 @@ function asCliProvider(cfg: RawProviderConfig | undefined): CliRawProvider | und
 /**
  * CLI subscription form. Fields are driver, bin, timeoutMs, and (grok only)
  * authPath.
- * There is no apiKeyEnv and no baseUrl. Codex is not a choice: the driver
- * is refused until `codex exec --help` matches, and this form must not
- * present it as a working seat.
+ * There is no apiKeyEnv and no baseUrl. Codex is not a choice: the driver is
+ * not yet implemented, so this form must not present it as a working seat,
+ * and an existing codex block is returned untouched (undefined).
  */
 async function editCliProviderForm(
   config: RawConfig,
@@ -536,6 +537,15 @@ async function editCliProviderForm(
     );
   }
   const existing = asCliProvider(existingId ? config.providers[existingId] : undefined);
+  if (existing && !isCliWizardDriver(existing.driver)) {
+    // The driver select has no entry for this driver, so any answer would
+    // rewrite the seat. Leave the block exactly as it is on disk.
+    process.stderr.write(
+      `${SERVER_NAME}: provider "${existingId ?? ""}" uses driver "${existing.driver}", which the wizard does not offer ` +
+        `(not yet implemented). The block was left unchanged; edit it by hand or remove it.\n`,
+    );
+    return undefined;
+  }
 
   const id = await input({
     message: "Provider id (key under `providers`, e.g. `grok-sub`, `claude-sub`)",
@@ -551,8 +561,7 @@ async function editCliProviderForm(
   });
 
   const driver = await select<CliWizardDriver>({
-    message:
-      "CLI driver (subscription seat, no API key). Codex is refused until exec --help matches.",
+    message: "CLI driver (subscription seat, no API key). Codex is not yet implemented.",
     choices: CLI_WIZARD_DRIVERS.map((name) => ({ name, value: name })),
     default: existing && isCliWizardDriver(existing.driver) ? existing.driver : "grok",
   });
