@@ -228,6 +228,19 @@ Manual example (minimal):
 }
 ```
 
+### Host-sample participants (the calling agent joins the debate)
+
+```json
+{
+  "kind": "host-sample",
+  "id": "self",
+  "personaId": "domain-expert",
+  "modelHint": "claude-sonnet"
+}
+```
+
+When this participant's turn arrives, the MCP host is asked to answer in character. Human approval is required in Claude Desktop today.
+
 ## Subscription CLI seats
 
 The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"` or `"driver": "claude"` to seat a signed-in CLI instead of a metered API key. The config wizard can add those two drivers. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`.
@@ -241,19 +254,6 @@ Cloudflare Workers reject any CLI provider when the config is resolved. The erro
 Sizing uses an assumed 30 second median call (an assumption, not a measurement) and `cliMaxInFlight: 2`. Three participants, `maxRounds: 4`, and a judge are 13 calls, about 6 minutes. Early stop after round 2 is 7 calls, about 3 minutes. If every call hits the 120 second timeout those become about 24 minutes and about 12 minutes. The engine default `maxRounds` stays 4. [`consensus.config.subscription.example.json`](./consensus.config.subscription.example.json) sets `maxRounds: 2` and `cliMaxInFlight: 2` and seats grok, claude, and one HTTP provider. It does not seat Codex. HTTP panels are not queued behind the CLI gate.
 
 `bench` does not require a CLI and does not refuse to run when one is configured. Its stderr estimate is `cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)`, an upper bound when early-stop fires. If any of those providers is CLI, stderr adds a subscription warning. A CLI judge is also the default baseline, and a CLI rubric evaluator is another spawn. An HTTP-only config never takes that warning.
-
-### Host-sample participants (the calling agent joins the debate)
-
-```json
-{
-  "kind": "host-sample",
-  "id": "self",
-  "personaId": "domain-expert",
-  "modelHint": "claude-sonnet"
-}
-```
-
-When this participant's turn arrives, the MCP host is asked to answer in character. Human approval is required in Claude Desktop today.
 
 ---
 
