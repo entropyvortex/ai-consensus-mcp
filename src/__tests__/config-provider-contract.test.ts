@@ -123,3 +123,28 @@ describe("HTTP provider back-compat", () => {
     );
   });
 });
+
+// Contract: with allowCli false the whole file is rejected with the Workers
+// CLI error whenever any CLI provider is present, regardless of key order and
+// before any HTTP provider's API key is looked up.
+describe("allowCli false", () => {
+  it("reports the CLI rejection even when an HTTP provider with an unset key comes first", () => {
+    vi.stubEnv("UNSET_WORKER_KEY", "");
+    try {
+      expect(() =>
+        loadConfigFromJson(
+          JSON.stringify(
+            panel({
+              openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "UNSET_WORKER_KEY" },
+              "grok-sub": { transport: "cli", driver: "grok" },
+            }),
+          ),
+          "worker",
+          { allowCli: false },
+        ),
+      ).toThrow(/provider "grok-sub" uses transport "cli"/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

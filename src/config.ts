@@ -281,13 +281,15 @@ export function resolveConfigFromRaw(
   sourcePath: string,
   options?: ResolveConfigOptions,
 ): LoadedConfig {
-  const allowCli = resolveAllowCli(options);
+  // Reject a CLI provider before any API key is looked up, so the Workers
+  // error does not depend on where the CLI block sits in the file.
+  if (!resolveAllowCli(options)) {
+    const cliId = Object.keys(raw.providers).find((id) => raw.providers[id]?.transport === "cli");
+    if (cliId !== undefined) throw new Error(workersCliError(cliId));
+  }
   const providers: Record<string, ResolvedProvider> = {};
   for (const [id, cfg] of Object.entries(raw.providers)) {
     if (cfg.transport === "cli") {
-      if (!allowCli) {
-        throw new Error(workersCliError(id));
-      }
       providers[id] = {
         id,
         transport: "cli",
