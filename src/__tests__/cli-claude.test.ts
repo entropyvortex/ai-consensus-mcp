@@ -232,6 +232,7 @@ describe("cli backend claude driver", () => {
         "--tools",
         "",
         "--restricted",
+        "--strict-mcp-config",
         "--no-session-persistence",
         "--setting-sources",
         "",
@@ -245,6 +246,10 @@ describe("cli backend claude driver", () => {
     expect(String(prompt.options.cwd)).toContain("consensus-cli-");
     expect(String(prompt.options.cwd)).not.toBe(process.cwd());
     const argv = prompt.args;
+    // Contract: user-scope MCP servers (~/.claude.json) are not started for an
+    // oracle call; --tools "" covers built-ins only and --mcp-config is never set.
+    expect(argv).toContain("--strict-mcp-config");
+    expect(argv.some((element) => element.startsWith("--mcp-config"))).toBe(false);
     expect(argv).not.toContain("--bare");
     expect(argv).not.toContain("--max-turns");
     expect(argv).not.toContain("bypassPermissions");

@@ -1,6 +1,7 @@
 // Claude Code subscription oracle. Flags are the executed 2.1.289 set:
 // -p, json schema, short --system-prompt, dontAsk, permission prompts none,
-// --tools "", --restricted, no session persistence, empty setting sources.
+// --tools "", --restricted, --strict-mcp-config (no user MCP servers), no
+// session persistence, empty setting sources.
 // No --bare (that forces API-key auth), no --max-turns (not in that help),
 // no bypassPermissions. The transcript is stdin, never an argv element.
 // Stdin-as-prompt is assumed until a smoke shows the CLI reads it. If stdin
@@ -85,6 +86,7 @@ export function buildClaudeArgv(args: { modelId: string }): string[] {
     "--tools",
     "",
     "--restricted",
+    "--strict-mcp-config",
     "--no-session-persistence",
     "--setting-sources",
     "",
