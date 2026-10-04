@@ -256,6 +256,12 @@ describe("cli backend claude driver", () => {
     expect(argv.join("\n")).not.toContain("Be precise.");
     expect(argv.join("\n")).not.toContain("Should we ship?");
     expect(Buffer.byteLength(CLAUDE_SYSTEM_PROMPT, "utf8")).toBeLessThan(400);
+    // Contract: the system prompt points at what the model actually receives
+    // (the SYSTEM/USER transcript on stdin), never at a file it cannot read
+    // with every tool disabled.
+    expect(CLAUDE_SYSTEM_PROMPT).not.toMatch(/prompt file/i);
+    expect(CLAUDE_SYSTEM_PROMPT).toContain("SYSTEM");
+    expect(CLAUDE_SYSTEM_PROMPT).toContain("USER");
     expect(argv[argv.indexOf("--system-prompt") + 1]).toBe(CLAUDE_SYSTEM_PROMPT);
     expect(stdin).toBe("SYSTEM:\nBe precise.\n\nUSER:\nShould we ship?");
     const env = prompt.options.env ?? {};

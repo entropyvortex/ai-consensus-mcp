@@ -25,9 +25,13 @@ import {
   type SpawnLike,
 } from "../runner.js";
 
-/** Same short constant as grok. Never interpolates request.system or request.user. */
+/**
+ * Short fixed constant. Never interpolates request.system or request.user.
+ * Unlike grok, the transcript arrives on stdin, not as a file, so it names
+ * the SYSTEM/USER sections the model actually sees.
+ */
 export const CLAUDE_SYSTEM_PROMPT =
-  "You are a text-only consensus oracle. Obey the prompt file exactly. Do not use tools, do not edit files, do not browse.";
+  "You are a text-only consensus oracle. Follow the SYSTEM and USER sections of the input exactly. Do not use tools, do not edit files, do not browse.";
 
 export const CLAUDE_INSTALL_URL = "https://code.claude.com";
 export const CLAUDE_LOGIN = "claude auth login";
@@ -221,7 +225,9 @@ export async function runClaude(
     stdin: "pipe",
     stdinText: formatOraclePrompt(req.system, req.user),
     disableGrokAutoupdater: false,
-    ownedFiles: ["prompt.txt"],
+    // Claude reads stdin and writes nothing to the scratch dir. The runner
+    // still writes prompt.txt for every driver; it is owned implicitly.
+    ownedFiles: [],
     buildArgv: () => buildClaudeArgv({ modelId: req.modelId }),
   });
 }
