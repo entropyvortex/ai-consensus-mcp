@@ -35,7 +35,8 @@
     "./http": {
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "ai-consensus-mcp": "./dist/index.js"
@@ -63,12 +64,12 @@
     "clean": "rm -rf dist coverage *.tsbuildinfo",
     "start": "node dist/index.js",
     "prepublishOnly": "npm run clean && npm run build && npm run test",
-    "deploy:cloudflare": "node scripts/assert-wrangler-free-tier.mjs && wrangler deploy",
-    "preview:cloudflare": "wrangler dev"
+    "deploy:cloudflare": "node scripts/assert-wrangler-free-tier.mjs && npx -y wrangler@4 deploy",
+    "preview:cloudflare": "npx -y wrangler@4 dev"
   },
   "dependencies": {
     "@inquirer/prompts": "^8.4.2",
-    "@modelcontextprotocol/sdk": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "ai-consensus-core": "^0.11.1",
     "zod": "^3.24.1"
   },
@@ -80,8 +81,7 @@
     "prettier": "^3.8.3",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.59.1",
-    "vitest": "^4.1.5",
-    "wrangler": "^4.105.0"
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=20"
