@@ -93,15 +93,17 @@ Or copy [`consensus.config.example.json`](./consensus.config.example.json). Each
 
 ```bash
 git clone https://github.com/entropyvortex/ai-consensus-mcp.git
-cd ai-consensus-mcp && npm install && npm run build
-npx wrangler secret put CONSENSUS_CONFIG_JSON   # paste your full config JSON
-npx wrangler secret put CONSENSUS_HTTP_API_KEY  # openssl rand -base64 32
-npx wrangler secret put GROK_API_KEY
-npx wrangler secret put ANTHROPIC_API_KEY       # if your config uses Anthropic
+cd ai-consensus-mcp && npm install
+npx -y wrangler@4 secret put CONSENSUS_CONFIG_JSON   # paste your full config JSON
+npx -y wrangler@4 secret put CONSENSUS_HTTP_API_KEY  # openssl rand -base64 32
+npx -y wrangler@4 secret put GROK_API_KEY
+npx -y wrangler@4 secret put ANTHROPIC_API_KEY       # if your config uses Anthropic
 npm run deploy:cloudflare
 ```
 
-**Cloudflare Git CI:** root directory `/`, build `npm run build`, deploy `npm run deploy:cloudflare`. Set the Git branch to `main` (or your feature branch until merge). Do **not** set root directory to `examples/cloudflare`.
+Wrangler is not a project dependency; the deploy scripts fetch `wrangler@4` on demand and bundle the TypeScript sources directly (no build step needed).
+
+**Cloudflare Git CI:** root directory `/`, build command `npm install` (or empty), deploy `npm run deploy:cloudflare`. Set the Git branch to `main` (or your feature branch until merge). Do **not** set root directory to `examples/cloudflare`.
 
 Your MCP endpoint is `https://<worker-name>.<account>.workers.dev/mcp`. See [examples/cloudflare/README.md](./examples/cloudflare/README.md).
 
@@ -119,17 +121,29 @@ ai-consensus-mcp serve --http --config /path/to/consensus.config.json \
 
 Put HTTPS in front (Caddy, nginx, Railway, Fly.io, Render). Register the public URL including the path, e.g. `https://consensus.example.com/mcp`.
 
+The server **refuses to start** on any non-loopback `--host` (anything but `127.0.0.0/8`, `::1`, `localhost`) unless `CONSENSUS_HTTP_API_KEY` is set. `--allow-unauthenticated` overrides this for setups where a trusted layer in front enforces access control; it logs a loud warning.
+
+If the proxy runs on the same machine and forwards to `127.0.0.1` while preserving the public `Host` header (Caddy does by default), add that name with `--allowed-hosts consensus.example.com`. Loopback binds validate `Host` to block DNS-rebinding attacks from web pages.
+
+HTTP-mode guardrails (defaults in parentheses): `--max-concurrent-tool-calls` (4; extra calls get HTTP 429), `--max-prompt-chars` (100000), `--max-output-tokens` (8192, the highest `maxOutputTokens` a caller may request). JSON-RPC batches that contain `tools/call` are rejected, and browser `Origin`s are refused unless listed in `--allowed-origins`.
+
 #### Docker (sketch)
 
 ```dockerfile
 FROM node:22-alpine
 RUN npm install -g ai-consensus-mcp
-ENV GROK_API_KEY="" ANTHROPIC_API_KEY=""
+# Binding 0.0.0.0 requires CONSENSUS_HTTP_API_KEY at runtime — the server
+# refuses to start without it. Never bake secrets into the image.
 CMD ["ai-consensus-mcp", "serve", "--http", "--host", "0.0.0.0", "--port", "3000", \
      "--config", "/config/consensus.config.json"]
 ```
 
-Mount config + inject secrets via your orchestrator's secret manager.
+```bash
+docker run -p 3000:3000 -v "$PWD/config:/config:ro" \
+  -e CONSENSUS_HTTP_API_KEY -e GROK_API_KEY -e ANTHROPIC_API_KEY ai-consensus-mcp-image
+```
+
+Mount the config and inject secrets from your orchestrator's secret manager.
 
 ### 3. Protect the endpoint (required for public URLs)
 
@@ -139,16 +153,16 @@ Set `CONSENSUS_HTTP_API_KEY` to a long random secret. Every MCP request must inc
 Authorization: Bearer <your CONSENSUS_HTTP_API_KEY>
 ```
 
-or `X-Consensus-Api-Key: <your CONSENSUS_HTTP_API_KEY>`. The `/health` probe stays open for deploy checks.
+or `X-Consensus-Api-Key: <your CONSENSUS_HTTP_API_KEY>`. The `/health` probe stays open for deploy checks and returns only `{"status":"ok"}`.
 
-Without this env var, anyone who discovers your URL can invoke consensus and spend your provider keys.
+Without this env var, anyone who discovers your URL can invoke consensus and spend your provider keys — which is why the Node server will not bind a non-loopback address without it, and the Workers entry returns 500 until the secret exists.
 
 ### 4. Register on Grok
 
 1. Open [https://grok.com/connectors](https://grok.com/connectors)
 2. **New Connector → Custom**
 3. Paste your public MCP URL (must include the path, e.g. `https://your-host/mcp`)
-4. If the connector UI supports custom headers, add `Authorization: Bearer <CONSENSUS_HTTP_API_KEY>`. If not, terminate TLS at a reverse proxy (Caddy/nginx) that injects the header before forwarding to your server.
+4. Add the custom header `Authorization: Bearer <CONSENSUS_HTTP_API_KEY>`. If your connector cannot send a custom header, do **not** work around it with a reverse proxy that injects the key: the proxy would authenticate every caller, leaving the endpoint effectively open. This server does not implement MCP OAuth.
 5. Save — Grok discovers `consensus`, all `consensus_<panel>` tools, and memory tools (if enabled on the server)
 
 ### 5. Example prompts
@@ -161,12 +175,12 @@ Try these once the connector is live:
 
 ### Cost, latency, and security
 
-| Topic        | What to expect                                                                                                                                                                                                                                                    |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Cost**     | Consensus deliberately uses ~40× the tokens of a single model call (multiple participants × multiple rounds + optional judge). Budget accordingly on provider dashboards.                                                                                         |
-| **Latency**  | Wall time is ~20× a single call. Progress notifications stream live status during the run.                                                                                                                                                                        |
-| **Security** | Set `CONSENSUS_HTTP_API_KEY` on every public deploy. MCP routes return 401 without a matching Bearer / `X-Consensus-Api-Key` header. Provider keys stay server-side; the endpoint secret only gates who may call your instance. Never commit either class of key. |
-| **Memory**   | Opt-in persistent memory writes to local disk — enable only on trusted hosts, not on ephemeral Workers.                                                                                                                                                           |
+| Topic        | What to expect                                                                                                                                                                                                                                                                                           |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cost**     | Consensus deliberately uses ~40× the tokens of a single model call (multiple participants × multiple rounds + optional judge). Budget accordingly on provider dashboards.                                                                                                                                |
+| **Latency**  | Wall time is ~20× a single call. Progress notifications stream live status during the run.                                                                                                                                                                                                               |
+| **Security** | Set `CONSENSUS_HTTP_API_KEY` on every public deploy (required for non-loopback Node binds). MCP routes return 401 without a matching Bearer / `X-Consensus-Api-Key` header. Provider keys stay server-side; the endpoint secret only gates who may call your instance. Never commit either class of key. |
+| **Memory**   | Opt-in persistent memory writes to local disk — enable only on trusted hosts, not on ephemeral Workers.                                                                                                                                                                                                  |
 
 ---
 
@@ -282,7 +296,8 @@ This server is a thin, faithful wrapper: it loads your config, builds the right 
 - No token-budget enforcement inside the tool — put alerts on your provider keys.
 - Memory is plaintext on disk. Do not enable it for prompts containing secrets you do not want persisted locally. Unavailable on Cloudflare Workers.
 - Host sampling is currently reliable only in Claude Desktop.
-- Public HTTP instances require `CONSENSUS_HTTP_API_KEY` — the server warns if you bind to `0.0.0.0` without it.
+- Public HTTP instances require `CONSENSUS_HTTP_API_KEY` — `serve --http` refuses a non-loopback bind without it (override: `--allow-unauthenticated`).
+- Stateless HTTP cancellation is by disconnect: closing the connection aborts the run and its provider calls. An MCP `notifications/cancelled` sent on a separate POST cannot reach the in-flight call in stateless mode.
 
 If you need something this server deliberately does not do, the right place is almost always `ai-consensus-core` or a thin custom wrapper around it.
 
