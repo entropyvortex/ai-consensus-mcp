@@ -13,8 +13,9 @@ export interface ConsensusCallerOptions {
   providers: Record<string, ResolvedProvider>;
   providerByParticipant: Record<string, string>;
   /**
-   * Defaults to `process.env`. `CONSENSUS_DISABLE_CLI=1` fails each CLI
-   * call before any driver lookup. HTTP calls ignore the switch.
+   * Defaults to `process.env`. `CONSENSUS_DISABLE_CLI` set to 1, true, yes
+   * or on (any case) fails each CLI call before any driver lookup. HTTP
+   * calls ignore the switch.
    */
   env?: NodeJS.ProcessEnv;
 }
@@ -29,11 +30,17 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
     const provider = providerId !== undefined ? opts.providers[providerId] : undefined;
     if (provider?.transport === "cli") {
       const env = opts.env ?? process.env;
-      if (env["CONSENSUS_DISABLE_CLI"] === "1") {
+      if (isTruthyFlag(env["CONSENSUS_DISABLE_CLI"])) {
         throw new Error("CLI transports are disabled by CONSENSUS_DISABLE_CLI");
       }
       throw new Error(`cli driver "${provider.driver}" is not registered`);
     }
     return httpCaller(req);
   };
+}
+
+const TRUTHY_FLAGS = new Set(["1", "true", "yes", "on"]);
+
+function isTruthyFlag(value: string | undefined): boolean {
+  return value !== undefined && TRUTHY_FLAGS.has(value.trim().toLowerCase());
 }
