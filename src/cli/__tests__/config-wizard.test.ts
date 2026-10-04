@@ -360,4 +360,64 @@ describe("config wizard", () => {
     });
     expect(after.providers["claude-sub"]).toEqual({ transport: "cli", driver: "claude" });
   });
+
+  // Contract: switching driver does not carry over a bin that names a
+  // driver binary other than the new one, nor a grok-only authPath.
+  it("switching driver drops a bin that names the old driver and keeps a custom one", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    const path = join(dir, "consensus.config.json");
+    const raw = mixedPanel();
+    raw.providers["grok-sub"] = {
+      transport: "cli",
+      driver: "grok",
+      bin: "grok",
+      authPath: "/home/u/.grok/auth.json",
+    };
+    raw.providers["claude-sub"] = {
+      transport: "cli",
+      driver: "claude",
+      bin: "/usr/local/bin/claude",
+    };
+    raw.providers["custom-sub"] = { transport: "cli", driver: "grok", bin: "/opt/tools/mycli" };
+    await writeRawConfig(path, raw);
+    script([
+      answer(/What would you like to do/, "providers"),
+      // grok (bin "grok") -> claude: bin override defaults off.
+      answer(/^Providers$/, "grok-sub"),
+      answer(/Provider "grok-sub"/, "edit"),
+      acceptDefault(/Provider id/),
+      answer(/CLI driver/, "claude"),
+      acceptDefault(/Override the binary/, false),
+      acceptDefault(/Override timeoutMs/, false),
+      // claude (bin ".../claude") -> grok: bin override defaults off.
+      answer(/^Providers$/, "claude-sub"),
+      answer(/Provider "claude-sub"/, "edit"),
+      acceptDefault(/Provider id/),
+      answer(/CLI driver/, "grok"),
+      acceptDefault(/Override the binary/, false),
+      acceptDefault(/Override timeoutMs/, false),
+      acceptDefault(/sign-in readiness/, false),
+      // grok (custom bin) -> claude: a custom bin is kept by default.
+      answer(/^Providers$/, "custom-sub"),
+      answer(/Provider "custom-sub"/, "edit"),
+      acceptDefault(/Provider id/),
+      answer(/CLI driver/, "claude"),
+      acceptDefault(/Override the binary/, true),
+      acceptDefault(/Binary name or path/, "/opt/tools/mycli"),
+      acceptDefault(/Override timeoutMs/, false),
+      answer(/^Providers$/, "__back__"),
+      answer(/What would you like to do/, "save"),
+    ]);
+
+    expect(await runConfig(["--config", path])).toBe(0);
+    expect(prompts.queue).toEqual([]);
+    const after = await readRawConfig(path);
+    expect(after.providers["grok-sub"]).toEqual({ transport: "cli", driver: "claude" });
+    expect(after.providers["claude-sub"]).toEqual({ transport: "cli", driver: "grok" });
+    expect(after.providers["custom-sub"]).toEqual({
+      transport: "cli",
+      driver: "claude",
+      bin: "/opt/tools/mycli",
+    });
+  });
 });

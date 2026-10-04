@@ -515,6 +515,18 @@ function isCliWizardDriver(driver: string): driver is CliWizardDriver {
   return driver === "grok" || driver === "claude";
 }
 
+/** Every driver the schema knows, offered or not. */
+const CLI_DRIVER_BINARIES = ["grok", "claude", "codex"] as const;
+
+/**
+ * True when `bin`'s final path segment is a known driver binary other than
+ * `driver`. A custom name such as `/opt/tools/mycli` returns false.
+ */
+function binNamesOtherDriver(bin: string, driver: CliWizardDriver): boolean {
+  const last = (bin.split(/[\\/]/).pop() ?? bin).replace(/\.(exe|cmd)$/i, "");
+  return (CLI_DRIVER_BINARIES as readonly string[]).includes(last) && last !== driver;
+}
+
 function asCliProvider(cfg: RawProviderConfig | undefined): CliRawProvider | undefined {
   if (cfg?.transport === "cli") return cfg;
   return undefined;
@@ -566,15 +578,21 @@ async function editCliProviderForm(
     default: existing && isCliWizardDriver(existing.driver) ? existing.driver : "grok",
   });
 
+  // A bin that names some other driver's binary (for example `grok` after
+  // switching to claude) is stale, so it is not offered as the default.
+  const keptBin =
+    existing?.bin !== undefined && !binNamesOtherDriver(existing.bin, driver)
+      ? existing.bin
+      : undefined;
   const wantsBin = await confirm({
-    message: "Override the binary? (default: `grok` or `claude` on PATH)",
-    default: existing?.bin !== undefined,
+    message: `Override the binary? (default: \`${driver}\` on PATH)`,
+    default: keptBin !== undefined,
   });
   let bin: string | undefined;
   if (wantsBin) {
     const value = await input({
       message: "Binary name or path",
-      default: existing?.bin ?? driver,
+      default: keptBin ?? driver,
       validate: (v) => (v.trim() ? true : "Required"),
     });
     bin = value.trim();
