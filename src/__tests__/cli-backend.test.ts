@@ -756,21 +756,19 @@ describe("cli backend grok oracle", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves claude and codex unregistered", async () => {
+  it("leaves codex unregistered", async () => {
     let spawns = 0;
     const { caller } = harness({
       providers: {
-        "claude-sub": grokProvider({ id: "claude-sub", driver: "claude", bin: "claude" }),
         "codex-sub": grokProvider({ id: "codex-sub", driver: "codex", bin: "codex" }),
       },
-      map: { c: "claude-sub", x: "codex-sub" },
+      map: { x: "codex-sub" },
       cache: new Map(),
       spawnImpl: () => {
         spawns += 1;
         return fakeChild();
       },
     });
-    await expect(caller(request("c"))).rejects.toThrow('cli driver "claude" is not registered');
     await expect(caller(request("x"))).rejects.toThrow('cli driver "codex" is not registered');
     expect(spawns).toBe(0);
   });
@@ -1031,7 +1029,7 @@ describe("cli backend grok oracle", () => {
       providers: {
         "grok-sub": grokProvider(),
         openai: httpProvider(),
-        "claude-sub": grokProvider({ id: "claude-sub", driver: "claude", bin: "claude" }),
+        "codex-sub": grokProvider({ id: "codex-sub", driver: "codex", bin: "codex" }),
       },
       env: { CONSENSUS_DISABLE_CLI: "1" },
       spawnImpl: () => {
@@ -1044,7 +1042,7 @@ describe("cli backend grok oracle", () => {
 
     const unregistered = await probeCliProviders({
       providers: {
-        "claude-sub": grokProvider({ id: "claude-sub", driver: "claude", bin: "claude" }),
+        "codex-sub": grokProvider({ id: "codex-sub", driver: "codex", bin: "codex" }),
       },
       env: {},
       spawnImpl: () => {
@@ -1052,7 +1050,7 @@ describe("cli backend grok oracle", () => {
         return fakeChild();
       },
     });
-    expect(unregistered).toContain('cli driver "claude" is not registered');
+    expect(unregistered).toContain('cli driver "codex" is not registered');
     expect(spawns).toBe(0);
   });
 

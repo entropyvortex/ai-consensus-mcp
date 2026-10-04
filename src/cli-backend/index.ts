@@ -1,8 +1,9 @@
-// CLI driver registry. PR 2 registers grok only. Claude and codex stay
-// unregistered so a seat for those drivers throws rather than spawning.
+// CLI driver registry. Grok and Claude are registered. Codex stays
+// unregistered so a seat for that driver throws rather than spawning.
 
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider, ResolvedProvider } from "../config.js";
+import { probeClaude, runClaude } from "./drivers/claude.js";
 import { probeGrok, runGrok } from "./drivers/grok.js";
 import { isTruthyFlag } from "./flags.js";
 import { abortException } from "./gate.js";
@@ -30,6 +31,7 @@ export interface CliDriver {
 
 const DRIVERS: Partial<Record<ResolvedCliProvider["driver"], CliDriver>> = {
   grok: { probe: probeGrok, run: runGrok },
+  claude: { probe: probeClaude, run: runClaude },
 };
 
 export function getRegisteredDriver(driver: ResolvedCliProvider["driver"]): CliDriver | undefined {
@@ -168,5 +170,11 @@ export async function probeCliProviders(args: {
 export { CliGate, abortException } from "./gate.js";
 export { buildChildEnv } from "./env.js";
 export { GROK_SYSTEM_OVERRIDE, GROK_INSTALL_URL, GROK_LOGIN } from "./drivers/grok.js";
+export {
+  CLAUDE_INSTALL_URL,
+  CLAUDE_LOGIN,
+  CLAUDE_READINESS_TIMEOUT_MS,
+  CLAUDE_SYSTEM_PROMPT,
+} from "./drivers/claude.js";
 export { ORACLE_JSON_SCHEMA_TEXT } from "./normalize.js";
 export type { CliRuntimeDeps, ReadinessState, SpawnLike } from "./runner.js";
