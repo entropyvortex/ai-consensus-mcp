@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createConsensusCaller } from "../caller.js";
 import {
-  CODEX_ORACLE_FLAGS_VERIFIED,
   CODEX_REQUIRED_GATE_FLAGS,
-  assertCodexDriverAllowed,
   codexDriverRefusalMessage,
   getRegisteredDriver,
 } from "../cli-backend/index.js";
@@ -41,31 +39,53 @@ function codexRaw(bin?: string): RawConfig {
 }
 
 describe("codex driver refusal", () => {
-  it("does not claim oracle flags were verified on this host", () => {
-    expect(CODEX_ORACLE_FLAGS_VERIFIED).toBe(false);
-    expect([...CODEX_REQUIRED_GATE_FLAGS]).toEqual(["--sandbox read-only", "approval never"]);
+  // Contract: the refusal states what is true — the driver is not
+  // implemented and its flags were never checked — and never claims a help
+  // check that did not run. It names the gate flags, the provider and the seat.
+  it("refuses with an honest not-implemented message", () => {
+    const message = codexDriverRefusalMessage("codex-sub", "c1");
+    expect(message).toContain("codex driver is not yet implemented");
+    expect(message).toContain('have not been verified against "codex exec --help"');
+    for (const flag of CODEX_REQUIRED_GATE_FLAGS) expect(message).toContain(flag);
+    expect(message).toContain('Provider "codex-sub"');
+    expect(message).toContain('"c1"');
+    expect(message).not.toContain("missing from");
   });
 
-  it("names the missing gate flags in the refusal message", () => {
-    const message = codexDriverRefusalMessage("codex");
-    expect(message).toContain("codex driver refused");
-    expect(message).toContain('missing from "codex exec --help"');
-    expect(message).toContain("--sandbox read-only");
-    expect(message).toContain("approval never");
+  // Contract: an unused codex provider entry does not stop the server from
+  // starting; HTTP participants in the same file still load.
+  it("loads a config whose codex provider no seat uses", () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const raw = codexRaw();
+    raw.participants = raw.participants.filter((p) => p.provider !== "codex-sub");
+    raw.participants.push({
+      id: "h2",
+      provider: "openai",
+      modelId: "gpt-4o",
+      personaId: "devils-advocate",
+    });
+    const cfg = resolveConfigFromRaw(raw, "test://codex-unused");
+    expect(cfg.participants.map((p) => p.id)).toEqual(["h1", "h2"]);
+    expect(cfg.providers["codex-sub"]).toMatchObject({ transport: "cli", driver: "codex" });
+    expect(Object.values(cfg.providerByParticipant)).not.toContain("codex-sub");
   });
 
-  it("fails at resolve with the missing-flag message", () => {
+  // Contract: a panel seat that would run on codex is refused at resolve,
+  // before any spawn, and the error names the provider and the seat.
+  it("refuses at resolve when a participant uses the codex provider", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     expect(() => resolveConfigFromRaw(codexRaw(), "test://codex-refuse")).toThrow(
-      codexDriverRefusalMessage("codex"),
+      codexDriverRefusalMessage("codex-sub", "c1"),
     );
-    expect(() => assertCodexDriverAllowed("codex")).toThrow(codexDriverRefusalMessage("codex"));
   });
 
-  it("uses the configured bin name in the resolve refusal", () => {
+  it("refuses at resolve when the judge uses the codex provider", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
-    expect(() => resolveConfigFromRaw(codexRaw("/opt/codex"), "test://codex-refuse-bin")).toThrow(
-      codexDriverRefusalMessage("/opt/codex"),
+    const raw = codexRaw();
+    raw.participants = raw.participants.filter((p) => p.provider !== "codex-sub");
+    raw.judge = { provider: "codex-sub", modelId: "gpt-5" };
+    expect(() => resolveConfigFromRaw(raw, "test://codex-judge")).toThrow(
+      codexDriverRefusalMessage("codex-sub", "judge"),
     );
   });
 

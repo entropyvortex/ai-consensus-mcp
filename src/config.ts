@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
 import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
-import { assertCodexDriverAllowed } from "./cli-backend/drivers/codex.js";
+import { codexDriverRefusalMessage } from "./cli-backend/drivers/codex.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -341,9 +341,6 @@ export function resolveConfigFromRaw(
   const providers = Object.create(null) as Record<string, ResolvedProvider>;
   for (const [id, cfg] of Object.entries(raw.providers)) {
     if (cfg.transport === "cli") {
-      if (cfg.driver === "codex") {
-        assertCodexDriverAllowed(cfg.bin ?? cfg.driver);
-      }
       providers[id] = {
         id,
         transport: "cli",
@@ -417,6 +414,15 @@ export function resolveConfigFromRaw(
       maxOutputTokens: raw.judge.maxOutputTokens,
     };
     providerByParticipant["judge"] = raw.judge.provider;
+  }
+
+  // Codex has no driver yet: refuse a seat that would run on it. An unused
+  // codex provider entry loads and never spawns.
+  for (const [seatId, providerId] of Object.entries(providerByParticipant)) {
+    const provider = providers[providerId];
+    if (provider?.transport === "cli" && provider.driver === "codex") {
+      throw new Error(codexDriverRefusalMessage(providerId, seatId));
+    }
   }
 
   const anyCli = Object.values(providers).some((provider) => provider.transport === "cli");

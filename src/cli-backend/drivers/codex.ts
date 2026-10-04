@@ -1,33 +1,18 @@
-// Codex CLI subscription oracle — refused until executed `codex exec --help`
-// shows `--sandbox read-only` (or equivalent) and a non-interactive approval
-// `never`. This host: `command -v codex` empty; `codex` / `codex exec --help`
-// both return "command not found". No spawn path is registered. Resolve of
-// `driver: "codex"` fails with the message below. Do not invent flag spellings.
+// Codex CLI subscription oracle — not implemented. No spawn path is
+// registered, and nothing here runs `codex exec --help`. A driver ships only
+// after executed help shows `--sandbox read-only` (or equivalent) and a
+// non-interactive approval `never`. Do not invent flag spellings.
+// Config resolve refuses only a seat (participant or judge) that uses a codex
+// provider; an unused codex provider entry loads and never spawns.
 
-/** True only when this PR ran `codex exec --help` and the gate flags matched. */
-export const CODEX_ORACLE_FLAGS_VERIFIED = false;
-
-/**
- * Gate from the design. Both must appear in executed help before a spawn path
- * ships. Named in the refusal message so the operator knows what is missing.
- */
+/** Flags the design requires in executed `codex exec --help` before a driver ships. */
 export const CODEX_REQUIRED_GATE_FLAGS = ["--sandbox read-only", "approval never"] as const;
 
-/**
- * Resolve-time refusal. `<bin> exec --help` is the help channel the design
- * requires; when the binary is absent that help cannot be shown, so the gate
- * flags are missing.
- */
-export function codexDriverRefusalMessage(bin = "codex"): string {
+/** Resolve-time refusal for a seat that would run on a codex provider. */
+export function codexDriverRefusalMessage(providerId: string, seatId: string): string {
   return (
-    `codex driver refused: required oracle flags missing from "${bin} exec --help": ` +
-    `${CODEX_REQUIRED_GATE_FLAGS.join(", ")}`
+    `ai-consensus-mcp: codex driver is not yet implemented: its oracle flags (${CODEX_REQUIRED_GATE_FLAGS.join(", ")}) ` +
+    `have not been verified against "codex exec --help". Provider "${providerId}" is used by "${seatId}"; ` +
+    "move that seat to a grok, claude, or HTTP provider."
   );
-}
-
-/** Throws when Codex has no verified spawn path. Called from config resolve. */
-export function assertCodexDriverAllowed(bin = "codex"): void {
-  if (!CODEX_ORACLE_FLAGS_VERIFIED) {
-    throw new Error(codexDriverRefusalMessage(bin));
-  }
 }

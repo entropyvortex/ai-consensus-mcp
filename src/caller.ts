@@ -2,8 +2,8 @@
 // Consensus caller — HTTP adapter or a registered CLI oracle
 // ─────────────────────────────────────────────────────────────
 // HTTP never acquires the process CLI gate. A CLI call with no gate
-// throws a seat Error before spawn. Codex is refused at resolve until
-// exec --help matches; no spawn path is registered.
+// throws a seat Error before spawn. Codex has no spawn path: resolve refuses
+// a seat that uses it, and an unregistered driver throws a seat Error.
 
 import type { ModelCaller, ModelCallRequest } from "ai-consensus-core";
 import { createOpenAICompatibleCaller } from "./adapter.js";
