@@ -13,6 +13,7 @@ import {
   noteIgnoredSampling,
   type CliRuntimeDeps,
 } from "./cli-backend/index.js";
+import { isTruthyFlag } from "./cli-backend/flags.js";
 import { abortException, type CliGate } from "./cli-backend/gate.js";
 import { assertCliPlatform } from "./cli-backend/runner.js";
 import type { ResolvedProvider } from "./config.js";
@@ -108,10 +109,4 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       opts.cliGate.release();
     }
   };
-}
-
-const TRUTHY_FLAGS = new Set(["1", "true", "yes", "on"]);
-
-function isTruthyFlag(value: string | undefined): boolean {
-  return value !== undefined && TRUTHY_FLAGS.has(value.trim().toLowerCase());
 }

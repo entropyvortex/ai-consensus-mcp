@@ -4,6 +4,7 @@
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider, ResolvedProvider } from "../config.js";
 import { probeGrok, runGrok } from "./drivers/grok.js";
+import { isTruthyFlag } from "./flags.js";
 import { abortException } from "./gate.js";
 import { assertCliPlatform } from "./runner.js";
 import type {
@@ -126,7 +127,7 @@ export async function probeCliProviders(args: {
   );
   if (cliProviders.length === 0) return "";
   const env = args.env ?? process.env;
-  if (env["CONSENSUS_DISABLE_CLI"] === "1") {
+  if (isTruthyFlag(env["CONSENSUS_DISABLE_CLI"])) {
     return "ai-consensus-mcp: CLI transports are disabled by CONSENSUS_DISABLE_CLI\n";
   }
   try {

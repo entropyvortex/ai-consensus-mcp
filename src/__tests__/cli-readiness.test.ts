@@ -58,6 +58,26 @@ function request(participantId: string): ModelCallRequest {
 const ANSWER = JSON.stringify({ structured_output: { answer: "ok", confidence: 66 } });
 
 describe("cli readiness", () => {
+  it.each(["1", "true", "YES", " on "])(
+    "startup probe honours CONSENSUS_DISABLE_CLI=%j like the caller does",
+    async (value) => {
+      // Contract: the startup probe and createConsensusCaller agree on which
+      // values disable CLI transports; a disabled process spawns nothing.
+      const spawned: string[] = [];
+      const note = await probeCliProviders({
+        providers: { "grok-sub": provider() },
+        env: { HOME: "/home/t", CONSENSUS_DISABLE_CLI: value },
+        spawnImpl: (bin: string) => {
+          spawned.push(bin);
+          return fake();
+        },
+        accessImpl: () => Promise.resolve(),
+      });
+      expect(note).toBe("ai-consensus-mcp: CLI transports are disabled by CONSENSUS_DISABLE_CLI\n");
+      expect(spawned).toEqual([]);
+    },
+  );
+
   it("re-probes after a failure so a fresh install or login works without restart", async () => {
     // Contract: a failed readiness probe is not cached. After the user
     // installs grok (or runs grok login), the next call probes again.
