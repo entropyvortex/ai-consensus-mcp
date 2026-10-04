@@ -329,13 +329,13 @@ describe("CLI provider resolve", () => {
   });
 
   it("defaults omitted CLI bin, timeout, and authPath", async () => {
-    const path = await writeConfig(cliPanel({ transport: "cli", driver: "codex" }));
+    const path = await writeConfig(cliPanel({ transport: "cli", driver: "claude" }));
     const cfg = await loadConfig(path);
     expect(cfg.providers["grok-sub"]).toEqual({
       id: "grok-sub",
       transport: "cli",
-      driver: "codex",
-      bin: "codex",
+      driver: "claude",
+      bin: "claude",
       timeoutMs: 120_000,
       authPath: undefined,
     });

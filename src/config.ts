@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
 import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
+import { assertCodexDriverAllowed } from "./cli-backend/drivers/codex.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -340,6 +341,9 @@ export function resolveConfigFromRaw(
   const providers = Object.create(null) as Record<string, ResolvedProvider>;
   for (const [id, cfg] of Object.entries(raw.providers)) {
     if (cfg.transport === "cli") {
+      if (cfg.driver === "codex") {
+        assertCodexDriverAllowed(cfg.bin ?? cfg.driver);
+      }
       providers[id] = {
         id,
         transport: "cli",
