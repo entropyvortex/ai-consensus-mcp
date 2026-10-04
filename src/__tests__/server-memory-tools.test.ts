@@ -277,6 +277,53 @@ describe("memory tools — end-to-end recall against a pre-populated store", () 
     await env.close();
   });
 
+  it("consensus_project_memory escapes backslashes and pipes in question cells", async () => {
+    const projectPath = "/tmp/fake-project-escape";
+    const { createMemoryStore } = await import("../memory/store.js");
+    const { projectKeyForPath } = await import("../memory/project-key.js");
+    const projectKey = projectKeyForPath(projectPath);
+    const store = await createMemoryStore({
+      storageRoot: join(workdir, projectKey),
+      projectKey,
+      projectPath,
+      maxResults: 100,
+      maxAgeDays: 365,
+    });
+    const baseResult: ConsensusResult = {
+      question: String.raw`Use C:\app\config|prod pattern?`,
+      participants: [],
+      rounds: [],
+      roundsCompleted: 1,
+      finalScore: 70,
+      finalAverageConfidence: 75,
+      finalStddev: 5,
+      stopReason: "converged",
+      startedAt: Date.now(),
+      completedAt: Date.now() + 100,
+      durationMs: 100,
+    };
+    await store.store({
+      projectKey,
+      projectPath,
+      panelId: "architecture_v2",
+      question: baseResult.question,
+      result: baseResult,
+      tags: ["architecture"],
+    });
+
+    const cfg = makeConfig(workdir, true);
+    cfg.memory.raw = { enabled: true, storagePath: workdir, projectPath };
+    const env = await connect(cfg);
+    const result = await env.client.callTool({
+      name: "consensus_project_memory",
+      arguments: {},
+    });
+    expect(result.isError).toBeFalsy();
+    const text = (result.content as { type: string; text?: string }[])[0]?.text ?? "";
+    expect(text).toContain(String.raw`Use C:\\app\\config\|prod pattern?`);
+    await env.close();
+  });
+
   it("consensus_what_we_decided finds the architecture decision but skips non-decision panels", async () => {
     const projectPath = "/tmp/fake-project-decided";
     const { createMemoryStore } = await import("../memory/store.js");

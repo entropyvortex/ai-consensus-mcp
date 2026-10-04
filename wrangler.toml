@@ -1,0 +1,15 @@
+# Cloudflare Workers — deploy from repo root (Git CI: build + npx wrangler deploy).
+# See examples/cloudflare/README.md for secrets and Grok connector setup.
+
+name = "ai-consensus-mcp"
+main = "examples/cloudflare/worker.ts"
+compatibility_date = "2025-06-01"
+# enable_request_signal: Request.signal aborts when the client disconnects, so
+# an abandoned consensus run stops its in-flight provider calls instead of
+# finishing (and billing) unseen.
+compatibility_flags = ["nodejs_compat", "enable_request_signal"]
+
+# Consensus runs issue multiple sequential model calls. Free-tier Workers may
+# time out on heavy panels. Paid plans can raise the CPU cap:
+#   [limits]
+#   cpu_ms = 300_000
