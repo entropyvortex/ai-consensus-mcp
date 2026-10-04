@@ -7,7 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ### Added — subscription CLI wizard, example, and bench estimate
 
-- The config wizard can add and edit `grok` and `claude` subscription providers. The HTTP form is never opened for a `transport: "cli"` id, so a save cannot rewrite that block into `baseUrl` + `apiKeyEnv`. Codex is not offered; that driver stays refused until `codex exec --help` matches.
+- The config wizard can add and edit `grok` and `claude` subscription providers. The HTTP form is never opened for a `transport: "cli"` id, so a save cannot rewrite that block into `baseUrl` + `apiKeyEnv`. Codex is not offered (not yet implemented), and editing an existing codex provider leaves the block unchanged. Switching a seat's driver does not carry over a `bin` that names another driver's binary. The `authPath` prompt is grok-only: it is the file checked for sign-in readiness.
+- The wizard no longer exits with code 2 when the config contains a `transport: "cli"` provider. That refusal was a stopgap until the CLI form existed; CLI providers are now edited through it.
 - `consensus.config.subscription.example.json` ships in the npm `files` list. It is a mixed panel (`maxRounds: 2`, `cliMaxInFlight: 2`) with grok, claude, and one HTTP provider.
 - Bench stderr estimates `cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)`, an upper bound when early-stop fires, and warns when a counted provider is CLI. Bench still runs. HTTP-only configs do not take that branch.
 - `ResolvedProvider` remains an internal type, not a stable plugin API. HTTP fields are unchanged; `transport` discriminates `"http"` and `"cli"`.
