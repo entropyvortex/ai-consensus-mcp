@@ -470,7 +470,7 @@ function cloudflareWorkersUserAgent(): boolean {
 function workersCliError(id: string): string {
   return (
     `ai-consensus-mcp: provider "${id}" uses transport "cli", which cannot spawn a local process on Cloudflare Workers. ` +
-    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok, claude, or codex CLI installed. " +
+    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok or claude CLI installed. " +
     "HTTP providers in this file were not loaded because the config is rejected as a whole."
   );
 }
