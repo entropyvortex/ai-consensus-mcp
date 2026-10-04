@@ -6,15 +6,46 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import type { ChildProcess } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelCallRequest } from "ai-consensus-core";
 import { createConsensusCaller } from "../caller.js";
 import { CliGate, type ReadinessState } from "../cli-backend/index.js";
-import { runOracle } from "../cli-backend/runner.js";
+import { runOracle, spawnCaptured } from "../cli-backend/runner.js";
 import type { ResolvedCliProvider } from "../config.js";
 
 let dir = "";
 const spawnedPids = new Set<number>();
+
+function isAlive(pid: number): boolean {
+  const stat = `/proc/${pid}/stat`;
+  if (existsSync("/proc/self/stat")) {
+    if (!existsSync(stat)) return false;
+    try {
+      // The state follows the parenthesised command; a zombie is already dead.
+      const state = readFileSync(stat, "utf8").split(") ")[1]?.charAt(0);
+      return state !== "Z" && state !== "X";
+    } catch {
+      return false;
+    }
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitFor(pred: () => boolean, timeoutMs = 1_000): Promise<void> {
+  const start = Date.now();
+  while (!pred()) {
+    if (Date.now() - start > timeoutMs) throw new Error("timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 /** Writes `<dir>/<name>` that execs node on `source`. Fake writes pids to `<dir>/pids`. */
 function fakeBin(name: string, source: string): string {
@@ -34,6 +65,11 @@ function fakeBin(name: string, source: string): string {
   );
   chmodSync(bin, 0o755);
   return bin;
+}
+
+function notes(): string[] {
+  const file = join(dir, "notes");
+  return existsSync(file) ? readFileSync(file, "utf8").trim().split("\n") : [];
 }
 
 function pids(): number[] {
@@ -63,7 +99,7 @@ function request(participantId: string): ModelCallRequest {
   };
 }
 
-function caller(bin: string, opts: { timeoutMs: number; gate?: CliGate }) {
+function caller(bin: string, opts: { timeoutMs: number; gate?: CliGate; killGraceMs?: number }) {
   const cache = new Map<string, ReadinessState>([["grok-sub", { ok: true }]]);
   return createConsensusCaller({
     providers: { "grok-sub": provider(bin, opts.timeoutMs) },
@@ -72,8 +108,21 @@ function caller(bin: string, opts: { timeoutMs: number; gate?: CliGate }) {
     readinessCache: cache,
     env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: dir },
     log: () => undefined,
+    ...(opts.killGraceMs !== undefined ? { killGraceMs: opts.killGraceMs } : {}),
   });
 }
+
+// Ignores SIGTERM, notes it, and notes any earlier fake that is still alive.
+const STUBBORN = `
+  process.on("SIGTERM", () => note("term " + process.pid));
+  for (const line of fs.readFileSync(DIR + "/pids", "utf8").trim().split("\\n")) {
+    const pid = Number(line);
+    if (pid === process.pid) continue;
+    try { process.kill(pid, 0); note("overlap " + pid); } catch {}
+  }
+  note("ready " + process.pid);
+  setInterval(() => {}, 1000);
+`;
 
 describe.skipIf(process.platform === "win32")("cli runner with real child processes", () => {
   beforeEach(() => {
@@ -132,5 +181,117 @@ describe.skipIf(process.platform === "win32")("cli runner with real child proces
       buildArgv: () => ["-e", "process.exit(3)"],
     });
     await expect(run).rejects.toThrow(/exited 3/);
+  });
+
+  it("kills a SIGTERM-ignoring child before the gate admits the next one", async () => {
+    // Contract: the in-flight cap bounds live processes, not pending
+    // promises. With CliGate(1), a child that ignores SIGTERM is SIGKILLed
+    // after the grace period and reaped before the second seat spawns.
+    const bin = fakeBin("stubborn", STUBBORN);
+    const call = caller(bin, { timeoutMs: 300, gate: new CliGate(1), killGraceMs: 100 });
+    const started = Date.now();
+    const results = await Promise.allSettled([call(request("p1")), call(request("p2"))]);
+    const elapsed = Date.now() - started;
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      expect((result as PromiseRejectedResult).reason).toMatchObject({ code: "ETIMEDOUT" });
+    }
+    const seen = notes();
+    expect(seen.filter((line) => line.startsWith("ready"))).toHaveLength(2);
+    expect(seen.filter((line) => line.startsWith("term"))).toHaveLength(2);
+    expect(seen.filter((line) => line.startsWith("overlap"))).toEqual([]);
+    expect(elapsed).toBeGreaterThanOrEqual(2 * (300 + 100));
+    for (const pid of pids()) expect(isAlive(pid)).toBe(false);
+  });
+
+  it("rejects an abort only after the SIGTERM-ignoring child is dead", async () => {
+    // Contract: AbortError is delivered once the child has exited, so the
+    // caller's gate release and scratch-dir removal never race a live child.
+    const bin = fakeBin("stubborn-abort", STUBBORN);
+    const ac = new AbortController();
+    const call = caller(bin, { timeoutMs: 5_000, killGraceMs: 150 });
+    const pending = call({ ...request("p1"), signal: ac.signal });
+    await waitFor(() => notes().some((line) => line.startsWith("ready")));
+    ac.abort();
+    let aliveAtReject: boolean | undefined;
+    await pending.catch((err: unknown) => {
+      aliveAtReject = pids().some(isAlive);
+      expect(err).toMatchObject({ name: "AbortError" });
+    });
+    expect(aliveAtReject).toBe(false);
+    expect(notes().some((line) => line.startsWith("term"))).toBe(true);
+  });
+
+  it("returns the answer when a grandchild keeps stdout open after exit", async () => {
+    // Contract: the seat settles on the child's exit plus a short stream
+    // grace, so a leftover helper that inherited stdout cannot turn a valid
+    // exit-0 answer into ETIMEDOUT. The leftover is killed with the group.
+    const bin = fakeBin(
+      "grandchild",
+      `
+      const { spawn } = require("node:child_process");
+      const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 4000)"], { stdio: ["ignore", "inherit", "inherit"] });
+      fs.writeFileSync(DIR + "/grandchild", String(g.pid));
+      process.stdout.write(JSON.stringify({ structured_output: { answer: "held open", confidence: 81 } }));
+      process.exit(0);
+      `,
+    );
+    const started = Date.now();
+    const res = await caller(bin, { timeoutMs: 2_000 })(request("p1"));
+    expect(Date.now() - started).toBeLessThan(1_500);
+    expect(res.content).toContain("held open");
+    expect(res.content).toContain("CONFIDENCE: 81");
+    const grandchild = Number(readFileSync(join(dir, "grandchild"), "utf8"));
+    spawnedPids.add(grandchild);
+    await waitFor(() => !isAlive(grandchild));
+  });
+});
+
+describe("cli runner after a capture failure", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("stops accumulating and does not re-kill on later chunks", async () => {
+    // Contract: once a call has failed, further output is neither buffered
+    // nor answered with another kill. One SIGTERM, one SIGKILL escalation.
+    const child = new EventEmitter() as ChildProcess & { stdout: PassThrough; stderr: PassThrough };
+    Object.assign(child, { stdout: new PassThrough(), stderr: new PassThrough(), stdin: null });
+    Object.defineProperty(child, "pid", { value: 515151 });
+    child.kill = () => true;
+    const kills: string[] = [];
+    vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals) => {
+      kills.push(`${pid}:${String(signal)}`);
+      if (signal === "SIGKILL") queueMicrotask(() => child.emit("exit", null, "SIGKILL"));
+      return true;
+    }) as typeof process.kill);
+    const pending: (() => void)[] = [];
+    const run = spawnCaptured({
+      driver: "fake",
+      bin: "fake",
+      argv: [],
+      env: {},
+      stdin: "ignore",
+      timeoutMs: 60_000,
+      maxCaptureChars: 8,
+      installUrl: "",
+      loginCommand: "",
+      spawnImpl: () => child,
+      scheduleTimeout: (ms, fire) => {
+        if (ms !== 60_000) pending.push(fire);
+        return () => undefined;
+      },
+    });
+    const settled = run.catch((err: unknown) => err);
+    child.stdout.write("0123456789");
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 20; i += 1) child.stdout.write("more output that must be dropped");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(kills).toEqual(["-515151:SIGTERM"]);
+    expect(child.stdout.listenerCount("data")).toBe(0);
+    pending.shift()?.();
+    const err = await settled;
+    expect(String(err)).toMatch(/exceeded 8 characters/);
+    expect(kills).toEqual(["-515151:SIGTERM", "-515151:SIGKILL"]);
   });
 });

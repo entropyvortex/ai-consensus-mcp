@@ -548,20 +548,26 @@ describe("cli backend grok oracle", () => {
     expect((caught as Error).name).not.toBe("AbortError");
     expect((caught as NodeJS.ErrnoException).code).toBe("ETIMEDOUT");
     expect((caught as Error).message).toContain("timed out after 120000ms");
-    expect(scheduled).toEqual([120_000]);
+    // The per-call timeout is the first timer; the rest are kill escalation.
+    expect(scheduled[0]).toBe(120_000);
     expect(kills).toContainEqual({ pid: -424242, signal: "SIGTERM" });
+    expect(kills).toContainEqual({ pid: -424242, signal: "SIGKILL" });
   });
 
   it("aborts an in-flight spawn with AbortError and a process-group SIGTERM", async () => {
     const kills: { pid: number; signal: NodeJS.Signals | undefined }[] = [];
+    let live: FakeChild | undefined;
     vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals) => {
       kills.push({ pid, signal });
+      // The fake dies on the signal, as a well-behaved child would.
+      queueMicrotask(() => live?.emit("close", null, signal));
       return true;
     }) as typeof process.kill);
     const ac = new AbortController();
     const { caller } = harness({
       spawnImpl: () => {
         const child = fakeChild();
+        live = child;
         queueMicrotask(() => ac.abort());
         return child;
       },
@@ -1062,8 +1068,10 @@ describe("cli backend grok oracle", () => {
     expect(chunks.join("")).toContain("USER:\nquestion");
 
     const kills: number[] = [];
-    vi.spyOn(process, "kill").mockImplementation((pid: number) => {
+    let bombRef: FakeChild | undefined;
+    vi.spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
       kills.push(pid);
+      queueMicrotask(() => bombRef?.emit("close", null, signal));
       return true;
     });
     const overflow = spawnCaptured({
@@ -1078,6 +1086,7 @@ describe("cli backend grok oracle", () => {
       loginCommand: "grok login",
       spawnImpl: () => {
         const bomb = fakeChild();
+        bombRef = bomb;
         queueMicrotask(() => {
           bomb.stdout.write("0123456789abcdef");
         });

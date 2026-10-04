@@ -1,8 +1,9 @@
 // Shared CLI oracle runner.
 // Prompt bytes never become an argv element. Scratch cwd, allowlisted env,
-// process-group kill, and a char cap on each stream. Timeout is a seat
-// Error (ETIMEDOUT). Abort is DOMException AbortError. ENOENT and E2BIG
-// settle on the spawn error event and do not wait for the timer.
+// process-group SIGTERM then SIGKILL, and a char cap on each stream. A call
+// settles only after its child has exited. Timeout is a seat Error
+// (ETIMEDOUT). Abort is DOMException AbortError. Spawn errors such as
+// ENOENT settle on the error event and do not wait for the timer.
 
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { chmod, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -43,6 +44,8 @@ export interface CliRuntimeDeps {
   accessImpl?: AccessLike;
   readinessCache?: Map<string, ReadinessState>;
   now?: () => number;
+  /** SIGTERM to SIGKILL escalation delay for every spawn. */
+  killGraceMs?: number;
 }
 
 export interface SpawnCapturedArgs {
@@ -61,12 +64,16 @@ export interface SpawnCapturedArgs {
   installUrl: string;
   loginCommand: string;
   maxCaptureChars?: number;
+  /** SIGTERM to SIGKILL escalation delay. Defaults to DEFAULT_KILL_GRACE_MS. */
+  killGraceMs?: number;
 }
 
 export interface SpawnCapturedResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+  /** Signal that ended the child, when it died from one. */
+  signal: NodeJS.Signals | null;
   durationMs: number;
 }
 
@@ -132,31 +139,51 @@ function clipStreams(stderr: string, stdout: string): string {
   return merged.slice(0, 2_000);
 }
 
-export function killProcessGroup(child: ChildProcess): void {
+export function killProcessGroup(child: ChildProcess, signal: NodeJS.Signals = "SIGTERM"): void {
   const pid = child.pid;
   if (typeof pid === "number" && pid > 0) {
     try {
-      process.kill(-pid, "SIGTERM");
+      process.kill(-pid, signal);
       return;
     } catch {
       // A non-detached test double is not a process-group leader.
     }
   }
   try {
-    child.kill("SIGTERM");
+    child.kill(signal);
   } catch {
     // Already exited.
   }
 }
 
+/** SIGTERM to SIGKILL escalation delay when the caller does not set one. */
+export const DEFAULT_KILL_GRACE_MS = 2_000;
+/** After SIGKILL, how long to wait for `exit` before settling anyway. */
+const REAP_WAIT_MS = 1_000;
+/** After `exit`, how long to wait for stdout/stderr to end. */
+const STREAM_GRACE_MS = 250;
+
+/**
+ * Spawns one CLI child and captures its output.
+ *
+ * Settles only after the child has exited (or, for a child that survives
+ * SIGKILL, after a bounded reap wait), so a caller that holds a gate slot
+ * or a scratch dir across this call never releases it under a live child.
+ * Timeout, abort, and capture overflow send SIGTERM to the process group,
+ * SIGKILL after `killGraceMs`, and then reject. A normal run settles on
+ * `close`, or on `exit` plus a short stream grace when a leftover process
+ * still holds the pipes; that leftover group is then SIGKILLed.
+ */
 export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCapturedResult> {
   if (args.signal?.aborted) {
     throw abortException();
   }
   const spawnImpl = args.spawnImpl ?? defaultSpawn;
   const schedule = args.scheduleTimeout ?? defaultSchedule;
-  const started = (args.now ?? Date.now)();
+  const now = args.now ?? Date.now;
+  const started = now();
   const maxChars = args.maxCaptureChars ?? CAPTURE_CHAR_CAP;
+  const killGraceMs = args.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
 
   let child: ChildProcess;
   try {
@@ -171,75 +198,156 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
     throw mapSpawnError(err, args);
   }
 
-  if (args.signal?.aborted) {
-    killProcessGroup(child);
-    throw abortException();
-  }
-
   return new Promise<SpawnCapturedResult>((resolve, reject) => {
     let settled = false;
+    let failure: Error | DOMException | undefined;
+    let exited = false;
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    let groupKilled = false;
     let stdout = "";
     let stderr = "";
-    const clearNothing = (): void => {
-      return undefined;
-    };
-    let cancelTimer: () => void = clearNothing;
+    const ended = { stdout: child.stdout === null, stderr: child.stderr === null };
     const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+    const timers = new Set<() => void>();
 
-    const finish = (fn: () => void) => {
+    // An injected scheduler may fire synchronously, before it returns.
+    const later = (delayMs: number, fn: () => void): void => {
+      const entry = { fired: false, cancel: (): void => undefined };
+      entry.cancel = schedule(delayMs, () => {
+        entry.fired = true;
+        timers.delete(entry.cancel);
+        fn();
+      });
+      if (!entry.fired) timers.add(entry.cancel);
+    };
+
+    const onStdout = (chunk: unknown) => {
+      takeChunk("stdout", chunk);
+    };
+    const onStderr = (chunk: unknown) => {
+      takeChunk("stderr", chunk);
+    };
+    const onStdoutEnd = () => {
+      ended.stdout = true;
+      maybeFinalizeAfterExit();
+    };
+    const onStderrEnd = () => {
+      ended.stderr = true;
+      maybeFinalizeAfterExit();
+    };
+
+    const detachStreams = () => {
+      child.stdout?.removeListener("data", onStdout);
+      child.stderr?.removeListener("data", onStderr);
+      // Keep draining so a still-running child never blocks on a full pipe.
+      child.stdout?.resume();
+      child.stderr?.resume();
+    };
+
+    const finalize = () => {
       if (settled) return;
       settled = true;
-      cancelTimer();
+      for (const cancel of timers) cancel();
+      timers.clear();
       args.signal?.removeEventListener("abort", onAbort);
-      fn();
-    };
-
-    const onAbort = () => {
-      killProcessGroup(child);
-      finish(() => {
-        reject(abortException());
+      detachStreams();
+      if (!ended.stdout || !ended.stderr) {
+        // The leader is gone or being reaped, but something still holds our
+        // pipes: a leftover helper in the group. Nobody will read it.
+        if (!groupKilled) killProcessGroup(child, "SIGKILL");
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      }
+      if (failure) {
+        reject(failure);
+        return;
+      }
+      stdout += decoders.stdout.end();
+      stderr += decoders.stderr.end();
+      resolve({
+        stdout,
+        stderr,
+        exitCode,
+        signal: exitSignal,
+        durationMs: Math.max(0, Math.round(now() - started)),
       });
     };
-    if (args.signal) {
-      args.signal.addEventListener("abort", onAbort, { once: true });
+
+    function maybeFinalizeAfterExit(): void {
+      if (exited && ended.stdout && ended.stderr) finalize();
     }
 
-    const takeChunk = (which: "stdout" | "stderr", chunk: unknown) => {
+    // Records the first failure, stops capture, and terminates the group.
+    // The promise settles when the child exits, not here.
+    const fail = (err: Error | DOMException) => {
+      if (settled || failure) return;
+      failure = err;
+      for (const cancel of timers) cancel();
+      timers.clear();
+      args.signal?.removeEventListener("abort", onAbort);
+      detachStreams();
+      if (exited) {
+        finalize();
+        return;
+      }
+      killProcessGroup(child, "SIGTERM");
+      later(killGraceMs, () => {
+        if (exited) return;
+        groupKilled = true;
+        killProcessGroup(child, "SIGKILL");
+        later(REAP_WAIT_MS, finalize);
+      });
+    };
+
+    function onAbort(): void {
+      fail(abortException());
+    }
+
+    function takeChunk(which: "stdout" | "stderr", chunk: unknown): void {
+      if (settled || failure) return;
       const text = chunkToString(decoders[which], chunk);
       if (which === "stdout") stdout += text;
       else stderr += text;
       const length = which === "stdout" ? stdout.length : stderr.length;
       if (length > maxChars) {
-        killProcessGroup(child);
-        finish(() => {
-          reject(new Error(`cli driver ${args.driver} ${which} exceeded ${maxChars} characters`));
-        });
+        fail(new Error(`cli driver ${args.driver} ${which} exceeded ${maxChars} characters`));
       }
-    };
+    }
 
-    child.stdout?.on("data", (chunk: unknown) => {
-      takeChunk("stdout", chunk);
-    });
-    child.stderr?.on("data", (chunk: unknown) => {
-      takeChunk("stderr", chunk);
-    });
+    child.stdout?.on("data", onStdout);
+    child.stderr?.on("data", onStderr);
+    child.stdout?.once("end", onStdoutEnd);
+    child.stderr?.once("end", onStderrEnd);
+
     child.on("error", (err: unknown) => {
-      killProcessGroup(child);
-      finish(() => {
-        reject(mapSpawnError(err, args));
-      });
+      // Spawn failures (ENOENT, EACCES) arrive here with no live process.
+      // Settle at once; a best-effort SIGKILL covers the rare live case.
+      groupKilled = true;
+      killProcessGroup(child, "SIGKILL");
+      failure ??= mapSpawnError(err, args);
+      finalize();
     });
-    child.on("close", (code: number | null) => {
-      finish(() => {
-        stdout += decoders.stdout.end();
-        stderr += decoders.stderr.end();
-        resolve({
-          stdout,
-          stderr,
-          exitCode: code,
-          durationMs: Math.max(0, Math.round((args.now ?? Date.now)() - started)),
-        });
-      });
+    child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+      exited = true;
+      exitCode = code;
+      exitSignal = signal;
+      if (failure) {
+        finalize();
+        return;
+      }
+      maybeFinalizeAfterExit();
+      if (!settled) later(STREAM_GRACE_MS, finalize);
+    });
+    child.on("close", (code: number | null, signal: NodeJS.Signals | null) => {
+      if (!exited) {
+        exited = true;
+        exitCode = code;
+        exitSignal = signal ?? null;
+      }
+      ended.stdout = true;
+      ended.stderr = true;
+      finalize();
     });
 
     if (args.stdin === "pipe" && child.stdin) {
@@ -252,13 +360,18 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
       child.stdin.end();
     }
 
-    cancelTimer = schedule(args.timeoutMs, () => {
-      killProcessGroup(child);
+    if (args.signal) {
+      if (args.signal.aborted) {
+        fail(abortException());
+        return;
+      }
+      args.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    later(args.timeoutMs, () => {
       const err = new Error(`cli driver ${args.driver} timed out after ${args.timeoutMs}ms`);
       Object.assign(err, { code: "ETIMEDOUT" });
-      finish(() => {
-        reject(err);
-      });
+      fail(err);
     });
   });
 }
@@ -327,14 +440,16 @@ export async function runOracle(spec: OracleRunSpec): Promise<ModelCallResponse>
       spawnImpl: spec.deps.spawnImpl,
       scheduleTimeout: spec.deps.scheduleTimeout,
       now: spec.deps.now,
+      killGraceMs: spec.deps.killGraceMs,
       installUrl: spec.installUrl,
       loginCommand: spec.loginCommand,
     });
     stdoutBytes = Buffer.byteLength(captured.stdout, "utf8");
     exitLabel = captured.exitCode === null ? "null" : String(captured.exitCode);
     if (captured.exitCode !== 0) {
+      const how = captured.signal ? ` (signal ${captured.signal})` : "";
       throw new Error(
-        `cli driver ${spec.driver} exited ${captured.exitCode ?? "null"}: ${clipStreams(captured.stderr, captured.stdout)}`,
+        `cli driver ${spec.driver} exited ${captured.exitCode ?? "null"}${how}: ${clipStreams(captured.stderr, captured.stdout)}`,
       );
     }
     const names = await readdir(dir);

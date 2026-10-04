@@ -100,6 +100,7 @@ export async function probeGrok(
       spawnImpl: deps.spawnImpl,
       scheduleTimeout: deps.scheduleTimeout,
       now: deps.now,
+      killGraceMs: deps.killGraceMs,
       installUrl: GROK_INSTALL_URL,
       loginCommand: GROK_LOGIN,
     });

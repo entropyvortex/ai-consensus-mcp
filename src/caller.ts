@@ -86,6 +86,7 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       accessImpl: opts.accessImpl,
       readinessCache: opts.readinessCache,
       now: opts.now,
+      killGraceMs: opts.killGraceMs,
     };
     await driver.probe(provider, runtime, req.signal);
 
