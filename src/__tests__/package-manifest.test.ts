@@ -42,3 +42,14 @@ describe("package.json", () => {
     expect(pkg.scripts["preview:cloudflare"]).toMatch(/npx -y wrangler@4 dev/);
   });
 });
+
+describe("wrangler.toml", () => {
+  it("enables request-signal passthrough so client disconnects abort provider calls", () => {
+    // Without enable_request_signal, workerd never tells the Worker that the
+    // caller left, and an abandoned consensus run bills to completion.
+    const toml = readFileSync(new URL("../../wrangler.toml", import.meta.url), "utf8");
+    const flags = /^compatibility_flags\s*=\s*\[(.*)\]/m.exec(toml)?.[1] ?? "";
+    expect(flags).toContain('"enable_request_signal"');
+    expect(flags).toContain('"nodejs_compat"');
+  });
+});

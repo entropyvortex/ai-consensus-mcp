@@ -72,6 +72,8 @@ export interface HealthInfo {
   status: "ok";
 }
 
+const SSE_KEEP_ALIVE_MS = 5_000;
+
 /**
  * Build a Web Standard fetch handler for stateless Streamable HTTP MCP.
  * Create once at deploy/startup with a loaded config; invoke per request.
@@ -195,6 +197,10 @@ async function handleStatelessMcpRequest(
 ): Promise<Response> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
+    // Some runtimes (workerd) only notice a vanished client when the next
+    // chunk is written; a short keep-alive bounds how long an abandoned
+    // call keeps spending before teardown aborts it.
+    keepAliveMs: SSE_KEEP_ALIVE_MS,
   });
 
   const server = createMcpServer(config);

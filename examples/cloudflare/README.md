@@ -49,6 +49,7 @@ In **Workers & Pages → your Worker → Settings → Build**:
 
 - **CPU time**: consensus runs multiple sequential model calls. Free-tier Workers may time out on heavy panels. On a **paid** plan you can add `[limits] cpu_ms = 300_000` to the repo-root `wrangler.toml`; otherwise use a Node host for production load.
 - **Memory layer**: not available on Workers (no local disk). Omit `"memory"` from config.
+- **Client disconnects**: `wrangler.toml` enables `enable_request_signal`, so when a caller goes away its in-flight provider calls are aborted. workerd notices a disconnect only when it next writes to the stream, and the server sends an SSE keep-alive every 5 s, so an abandoned run stops within about 10 s.
 - **Secrets**: provider keys live in Worker secrets — never embed them in `wrangler.toml` or the config JSON body committed to git.
 
 ## Health check

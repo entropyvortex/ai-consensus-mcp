@@ -105,3 +105,34 @@ describe("createHttpHandler — MCP traffic (Workers path)", () => {
     await eventually(() => provider.aborts() === 2);
   });
 });
+
+describe("createHttpHandler — disconnect detection on write-driven runtimes", () => {
+  it("emits an SSE keep-alive within 5s of an idle tool call", async () => {
+    // Contract: workerd only notices a vanished client when a chunk is
+    // written. A keep-alive every ≤5s bounds how long an abandoned call keeps
+    // spending before Request.signal / cancel tears it down.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const provider = mockProvider("hang");
+      const handler = createHttpHandler(makeConfig(), NO_AUTH);
+      const res = await handler(mcpRequest(toolCall(11, { prompt: "idle", judge: false })));
+      await provider.waitForCalls(2);
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      const pump = (async () => {
+        while (!seen.includes(": keepalive")) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          seen += decoder.decode(value);
+        }
+      })();
+      vi.advanceTimersByTime(5_000);
+      await pump;
+      expect(seen).toContain(": keepalive");
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
