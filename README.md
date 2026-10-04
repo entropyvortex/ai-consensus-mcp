@@ -243,11 +243,11 @@ When this participant's turn arrives, the MCP host is asked to answer in charact
 
 ## Subscription CLI seats
 
-The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"` or `"driver": "claude"` to seat a signed-in CLI instead of a metered API key. The config wizard can add those two drivers. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`.
+The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"` or `"driver": "claude"` to seat a signed-in CLI instead of a metered API key. The config wizard can add and edit those two drivers. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`. For grok, `authPath` is the file checked for sign-in readiness (default `~/.grok/auth.json`); it does not change which login grok uses, and the claude driver ignores it.
 
 Each CLI call is a text oracle: a fresh temp directory, an allowlisted child environment (API keys are not copied), and a 120s timeout. Claude denies built-in tools (`--tools ""` and `--restricted`). Grok denies subagents (`--no-subagents`) and web search (`--disable-web-search`) only. Grok's `--disallowed-tools` and `--deny` exist, but `--help` does not list tool names, so this version does not pass a guessed denylist. Other Grok tools are an accepted residual. `~/.grok/config.toml` can still enable tools; there is no executed flag that ignores that file. Writes outside the temp directory are not detected.
 
-Codex is not a working seat. `driver: "codex"` is refused at resolve until `codex exec --help` shows `--sandbox read-only` and a non-interactive approval of `never`. There is no spawn path.
+Codex is not yet implemented; `driver: "codex"` is refused when a participant uses it. The wizard does not offer it, and editing an existing codex provider leaves the block unchanged.
 
 Cloudflare Workers reject any CLI provider when the config is resolved. The error names the provider and tells you to run `ai-consensus-mcp serve` on a machine with the CLI installed. Do not put CLI providers in `CONSENSUS_CONFIG_JSON`. An HTTP-only Worker config is unchanged. A remote connector cannot see a local `grok login`.
 
