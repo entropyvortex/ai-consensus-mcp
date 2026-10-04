@@ -4,7 +4,7 @@
 // bypassPermissions. The transcript lives in the scratch prompt file.
 
 import { access } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir as osHomedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider } from "../../config.js";
@@ -20,11 +20,27 @@ export const GROK_LOGIN = "grok login";
 
 const VERSION_TIMEOUT_MS = 15_000;
 
-export function grokAuthPath(authPath: string | undefined, env: NodeJS.ProcessEnv): string {
+/**
+ * Where grok keeps its login. Explicit authPath, then GROK_HOME, then
+ * HOME, then the OS home dir. Throws rather than return a path relative to
+ * the server's cwd when no home dir is known.
+ */
+export function grokAuthPath(
+  authPath: string | undefined,
+  env: NodeJS.ProcessEnv,
+  homedir: () => string = osHomedir,
+): string {
   if (authPath) return authPath;
   const grokHome = env["GROK_HOME"];
   if (grokHome) return join(grokHome, "auth.json");
-  const home = env["HOME"] ?? "";
+  // An empty HOME counts as unset.
+  const envHome = env["HOME"];
+  const home = envHome !== undefined && envHome !== "" ? envHome : homedir();
+  if (!home) {
+    throw new Error(
+      `cli driver grok: cannot locate the grok auth file: HOME is unset and the OS reports no home directory. Set GROK_HOME or the provider authPath.`,
+    );
+  }
   return join(home, ".grok", "auth.json");
 }
 
@@ -89,7 +105,7 @@ export async function probeGrok(
       `cli driver grok: "${provider.bin} --version" failed (exit ${captured.exitCode ?? "null"}). Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
     );
   }
-  const authPath = grokAuthPath(provider.authPath, parent);
+  const authPath = grokAuthPath(provider.authPath, parent, deps.homedir);
   const accessImpl = deps.accessImpl ?? access;
   try {
     await accessImpl(authPath);

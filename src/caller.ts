@@ -88,6 +88,7 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       readinessCache: opts.readinessCache,
       now: opts.now,
       killGraceMs: opts.killGraceMs,
+      homedir: opts.homedir,
     };
     await ensureCliReady(driver, provider, runtime, req.signal);
 

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelCallRequest } from "ai-consensus-core";
 import { createConsensusCaller } from "../caller.js";
 import { CliGate, probeCliProviders, type ReadinessState } from "../cli-backend/index.js";
+import { grokAuthPath } from "../cli-backend/drivers/grok.js";
 import type { ResolvedCliProvider } from "../config.js";
 
 type Fake = ChildProcess & { stdout: PassThrough; stderr: PassThrough };
@@ -149,5 +150,31 @@ describe("cli readiness", () => {
     expect(note).toContain("provider=one driver=grok ok");
     expect(note).toContain("provider=two driver=grok ok");
     expect(note.indexOf("provider=one")).toBeLessThan(note.indexOf("provider=two"));
+  });
+
+  it("falls back to the OS home dir when HOME is unset or empty", () => {
+    // Contract: the auth path is never relative to the server's cwd.
+    expect(grokAuthPath(undefined, {}, () => "/home/os")).toBe("/home/os/.grok/auth.json");
+    expect(grokAuthPath(undefined, { HOME: "" }, () => "/home/os")).toBe(
+      "/home/os/.grok/auth.json",
+    );
+    expect(grokAuthPath(undefined, { HOME: "/h" }, () => "/home/os")).toBe("/h/.grok/auth.json");
+  });
+
+  it("reports a clear readiness error when no home dir is known", async () => {
+    const note = await probeCliProviders({
+      providers: { "grok-sub": { ...provider(), authPath: undefined } },
+      env: { HOME: "" },
+      homedir: () => "",
+      accessImpl: () => Promise.resolve(),
+      spawnImpl: () => {
+        const child = fake();
+        queueMicrotask(() => exitWith(child, 0, "1.0.46\n"));
+        return child;
+      },
+    });
+    expect(note).toContain("failed");
+    expect(note).toContain("cannot locate the grok auth file");
+    expect(note).toContain("GROK_HOME");
   });
 });

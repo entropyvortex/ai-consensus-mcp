@@ -117,6 +117,7 @@ export async function probeCliProviders(args: {
   accessImpl?: AccessLike;
   scheduleTimeout?: ScheduleTimeout;
   log?: (line: string) => void;
+  homedir?: () => string;
 }): Promise<string> {
   const cliProviders = Object.values(args.providers).filter(
     (provider): provider is ResolvedCliProvider => provider.transport === "cli",
@@ -133,6 +134,7 @@ export async function probeCliProviders(args: {
     scheduleTimeout: args.scheduleTimeout,
     log: args.log,
     readinessCache: args.cache,
+    homedir: args.homedir,
   };
   // Probes run in parallel; one slow CLI does not delay the others. Lines
   // keep provider order.

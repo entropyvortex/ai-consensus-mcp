@@ -46,6 +46,8 @@ export interface CliRuntimeDeps {
   now?: () => number;
   /** SIGTERM to SIGKILL escalation delay for every spawn. */
   killGraceMs?: number;
+  /** Home-dir lookup used when HOME is unset. Defaults to os.homedir. */
+  homedir?: () => string;
 }
 
 export interface SpawnCapturedArgs {
