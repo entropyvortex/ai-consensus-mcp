@@ -1,4 +1,4 @@
-// Confidence normalization for CLI oracles.
+// Output parsing and confidence normalization for CLI oracles.
 // The engine scores the first `confidence:` hit. Structured confidence wins
 // over answer text, so marker-like phrases in the body are neutralized and
 // the only real marker is the trailer we append. participantId "judge"
@@ -43,37 +43,59 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
+function tryParse(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The CLI result object from stdout, or undefined when there is none.
+ * Tries the whole output first, then each line that opens with `{`, from
+ * the last one up, parsed through to the end of the output. That accepts a
+ * log line (plain or JSON) before the result and a pretty-printed result,
+ * and always prefers the final object, which is the CLI's answer.
+ */
 export function parseCliJson(stdout: string): unknown {
   const trimmed = stdout.trim();
   if (!trimmed) return undefined;
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    // Grok sometimes prefixes a log line. Take the outermost object.
-  }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    try {
-      return JSON.parse(trimmed.slice(start, end + 1)) as unknown;
-    } catch {
-      return undefined;
-    }
+  const whole = tryParse(trimmed);
+  if (whole !== undefined) return whole;
+  const lines = trimmed.split("\n");
+  for (let i = lines.length - 1; i > 0; i -= 1) {
+    if (!lines[i]?.trimStart().startsWith("{")) continue;
+    const parsed = tryParse(lines.slice(i).join("\n"));
+    if (asRecord(parsed)) return parsed;
   }
   return undefined;
 }
 
-function extractAnswer(stdout: string): ExtractedAnswer {
+function clipForError(stdout: string): string {
+  const flat = stdout.trim().replace(/\s+/g, " ");
+  return flat.length > 200 ? `${flat.slice(0, 200)}...` : flat;
+}
+
+// Every driver runs with --output-format json, so stdout that is not a JSON
+// object is a seat error. Returning the raw text would score a log line,
+// a truncated object, or a CLI error banner as a real answer.
+function extractAnswer(driver: string, stdout: string): ExtractedAnswer {
   const parsed = parseCliJson(stdout);
   const obj = asRecord(parsed);
   if (!obj) {
-    return {
-      answer: stdout,
-      structured: false,
-      rawConfidence: undefined,
-      isError: false,
-      errorDetail: "",
-    };
+    if (stdout.trim() === "") {
+      return {
+        answer: "",
+        structured: false,
+        rawConfidence: undefined,
+        isError: false,
+        errorDetail: "",
+      };
+    }
+    throw new Error(
+      `cli driver ${driver} returned output that is not JSON: ${clipForError(stdout)}`,
+    );
   }
   const subtype = typeof obj["subtype"] === "string" ? obj["subtype"] : "";
   const isError = obj["is_error"] === true || subtype.startsWith("error");
@@ -119,13 +141,10 @@ function extractAnswer(stdout: string): ExtractedAnswer {
       errorDetail,
     };
   }
-  return {
-    answer: stdout,
-    structured: false,
-    rawConfidence: undefined,
-    isError,
-    errorDetail,
-  };
+  if (isError) {
+    return { answer: "", structured: false, rawConfidence: undefined, isError, errorDetail };
+  }
+  throw new Error(`cli driver ${driver} returned JSON without an answer: ${clipForError(stdout)}`);
 }
 
 function firstNumber(rec: Record<string, unknown>, keys: readonly string[]): number | undefined {
@@ -191,7 +210,7 @@ export function normalizeCliStdout(args: {
   stdout: string;
   log: (line: string) => void;
 }): NormalizedCli {
-  const extracted = extractAnswer(args.stdout);
+  const extracted = extractAnswer(args.driver, args.stdout);
   if (extracted.isError) {
     const detail = extracted.errorDetail ? `: ${extracted.errorDetail}` : "";
     throw new Error(`cli driver ${args.driver} returned an error result${detail}`);
