@@ -243,6 +243,11 @@ export async function spawnCaptured(args: SpawnCapturedArgs): Promise<SpawnCaptu
     });
 
     if (args.stdin === "pipe" && child.stdin) {
+      // A child that exits without draining stdin makes the write fail with
+      // EPIPE on the stdin stream. Without a listener that is an uncaught
+      // exception that kills the whole server. The exit status already
+      // carries the failure, so the stream error is dropped.
+      child.stdin.on("error", () => undefined);
       child.stdin.write(args.stdinText ?? "");
       child.stdin.end();
     }

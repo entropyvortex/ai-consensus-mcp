@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ModelCallRequest } from "ai-consensus-core";
 import { createConsensusCaller } from "../caller.js";
 import { CliGate, type ReadinessState } from "../cli-backend/index.js";
+import { runOracle } from "../cli-backend/runner.js";
 import type { ResolvedCliProvider } from "../config.js";
 
 let dir = "";
@@ -106,5 +107,30 @@ describe.skipIf(process.platform === "win32")("cli runner with real child proces
     const res = await caller(bin, { timeoutMs: 5_000 })(request("p1"));
     expect(res.content).not.toContain("�");
     expect(res.content).toContain("price €42 ok");
+  });
+
+  it("survives EPIPE when the child exits without reading an 8 MB stdin", async () => {
+    // Contract: a stdin write error (EPIPE) is never an uncaught exception
+    // that takes the server down; the seat rejects with the exit status.
+    const run = runOracle({
+      driver: "pipe-test",
+      bin: process.execPath,
+      providerId: "pipe-sub",
+      participantId: "p1",
+      round: 1,
+      system: "s",
+      user: "u",
+      timeoutMs: 5_000,
+      parentEnv: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+      deps: { log: () => undefined },
+      installUrl: "https://example.invalid",
+      loginCommand: "login",
+      stdin: "pipe",
+      stdinText: "x".repeat(8_000_000),
+      disableGrokAutoupdater: false,
+      ownedFiles: [],
+      buildArgv: () => ["-e", "process.exit(3)"],
+    });
+    await expect(run).rejects.toThrow(/exited 3/);
   });
 });
