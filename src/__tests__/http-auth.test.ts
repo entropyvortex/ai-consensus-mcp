@@ -145,7 +145,6 @@ describe("HTTP auth integration", () => {
     });
     const res = await handler(new Request("http://localhost/health"));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { authRequired: boolean };
-    expect(body.authRequired).toBe(true);
+    expect(await res.json()).toEqual({ status: "ok" });
   });
 });

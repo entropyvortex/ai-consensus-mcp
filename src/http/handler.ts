@@ -12,7 +12,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { LoadedConfig } from "../config.js";
 import { createMcpServer } from "../server.js";
-import { SERVER_NAME, SERVER_VERSION } from "../version.js";
+import { SERVER_NAME } from "../version.js";
 import {
   resolveHttpAuthConfig,
   unauthorizedResponse,
@@ -33,16 +33,9 @@ export interface HttpHandlerOptions {
   auth?: HttpAuthConfig;
 }
 
+/** Liveness only: no auth posture, panel shape, or version for scanners. */
 export interface HealthInfo {
   status: "ok";
-  server: string;
-  version: string;
-  participants: number;
-  providers: number;
-  memory: boolean;
-  transport: "streamable-http-stateless";
-  /** True when CONSENSUS_HTTP_API_KEY (or explicit auth config) protects MCP routes. */
-  authRequired: boolean;
 }
 
 /**
@@ -63,22 +56,27 @@ export function createHttpHandler(
 
     if (enableHealth && request.method === "GET") {
       if (pathname === "/health" || pathname === `${mcpPath}/health`) {
-        const body: HealthInfo = {
-          status: "ok",
-          server: SERVER_NAME,
-          version: SERVER_VERSION,
-          participants: config.participants.length,
-          providers: Object.keys(config.providers).length,
-          memory: config.memory.enabled,
-          transport: "streamable-http-stateless",
-          authRequired: Boolean(auth.apiKey),
-        };
+        const body: HealthInfo = { status: "ok" };
         return jsonResponse(200, body);
       }
     }
 
     if (pathname !== mcpPath) {
       return new Response("Not Found", { status: 404 });
+    }
+
+    // Stateless: no standalone GET SSE stream (it could never carry a
+    // message, yet would pin a server + connection) and no session to DELETE.
+    if (request.method !== "POST") {
+      return jsonRpcError(
+        405,
+        -32000,
+        "Method Not Allowed: this stateless endpoint accepts POST only",
+        null,
+        {
+          Allow: "POST",
+        },
+      );
     }
 
     const authResult = verifyHttpAuth(auth, request.headers);
@@ -197,11 +195,25 @@ export function normalizePath(path: string): string {
   return path.slice(0, end) || "/";
 }
 
-function jsonResponse(status: number, body: unknown): Response {
+function jsonResponse(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
   });
+}
+
+function jsonRpcError(
+  status: number,
+  code: number,
+  message: string,
+  id: string | number | null,
+  headers: Record<string, string> = {},
+): Response {
+  return jsonResponse(status, { jsonrpc: "2.0", error: { code, message }, id }, headers);
 }
 
 /** Safe client-facing message — never forwards err.message (CodeQL: stack-trace exposure). */
