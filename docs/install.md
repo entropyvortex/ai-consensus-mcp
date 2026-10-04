@@ -20,8 +20,11 @@ see the README section **"Using as a Grok Custom Connector"** and
   default. [`consensus.config.subscription.example.json`](../consensus.config.subscription.example.json)
   seats signed-in `grok` and `claude` CLIs plus one HTTP provider; the
   installer only registers the server command and does not embed those
-  logins. A Cloudflare Worker or any remote connector cannot see `grok login`,
-  and CLI providers are rejected there.
+  logins. CLI seats run only next to a signed-in CLI: Cloudflare Workers
+  reject them in `CONSENSUS_CONFIG_JSON`, and CLI seats are disabled in HTTP
+  mode unless you pass `--allow-cli`. See the README's
+  [remote deployment section](../README.md#using-as-a-grok-custom-connector)
+  and [Subscription CLI seats](../README.md#subscription-cli-seats).
 
 ## The CLI installer
 
