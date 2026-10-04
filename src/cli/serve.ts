@@ -28,6 +28,9 @@ export interface ServeArgs {
   allowedHosts: string[] | undefined;
   allowedOrigins: string[] | undefined;
   allowUnauthenticated: boolean;
+  maxConcurrentToolCalls: number | undefined;
+  maxPromptChars: number | undefined;
+  maxOutputTokens: number | undefined;
 }
 
 const SERVE_HELP = `
@@ -65,6 +68,14 @@ Flags:
                          Comma-separated browser Origins to accept. Requests
                          carrying any other Origin header get 403; clients
                          that send no Origin (server-side) are unaffected.
+      --max-concurrent-tool-calls <n>
+                         Concurrent tool calls served at once (default 4).
+                         Further calls get HTTP 429 until a slot frees.
+      --max-prompt-chars <n>
+                         Longest prompt argument accepted (default 100000).
+      --max-output-tokens <n>
+                         Highest maxOutputTokens a caller may request
+                         (default 8192).
   -h, --help             Show this help.
 
 Environment:
@@ -116,7 +127,32 @@ const VALUE_FLAGS: Record<string, ValueFlag> = {
     out.allowedOrigins = parseList(v);
     return undefined;
   },
+  "--max-concurrent-tool-calls": (out, v, flag) => {
+    const n = parseStrictInt(v, 1, 10_000);
+    if (n === undefined) return new Error(`Invalid ${flag} value: ${v} (expected 1-10000)`);
+    out.maxConcurrentToolCalls = n;
+    return undefined;
+  },
+  "--max-prompt-chars": (out, v, flag) => {
+    const n = parseStrictInt(v, 1, 10_000_000);
+    if (n === undefined) return new Error(`Invalid ${flag} value: ${v}`);
+    out.maxPromptChars = n;
+    return undefined;
+  },
+  "--max-output-tokens": (out, v, flag) => {
+    const n = parseStrictInt(v, 1, 10_000_000);
+    if (n === undefined) return new Error(`Invalid ${flag} value: ${v}`);
+    out.maxOutputTokens = n;
+    return undefined;
+  },
 };
+
+/** Decimal digits only (no "3000abc", "1e3", " 7", "-1"), within [min, max]. */
+export function parseStrictInt(value: string, min: number, max: number): number | undefined {
+  if (!/^\d+$/.test(value)) return undefined;
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= min && n <= max ? n : undefined;
+}
 
 export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
   const out: ServeArgs = {
@@ -129,6 +165,9 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     allowedHosts: undefined,
     allowedOrigins: undefined,
     allowUnauthenticated: false,
+    maxConcurrentToolCalls: undefined,
+    maxPromptChars: undefined,
+    maxOutputTokens: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
@@ -228,6 +267,11 @@ async function runServeHttp(
     ...(args.allowedHosts ? { allowedHosts: args.allowedHosts } : {}),
     ...(args.allowedOrigins ? { allowedOrigins: args.allowedOrigins } : {}),
     allowUnauthenticated: args.allowUnauthenticated,
+    ...(args.maxConcurrentToolCalls !== undefined
+      ? { maxConcurrentToolCalls: args.maxConcurrentToolCalls }
+      : {}),
+    ...(args.maxPromptChars !== undefined ? { maxPromptChars: args.maxPromptChars } : {}),
+    ...(args.maxOutputTokens !== undefined ? { maxOutputTokens: args.maxOutputTokens } : {}),
   });
 
   return new Promise<number>((resolve) => {

@@ -45,3 +45,22 @@ describe("parseServeArgs — --allow-unauthenticated", () => {
     expect(parse(["--http", "--allow-unauthenticated"]).allowUnauthenticated).toBe(true);
   });
 });
+
+describe("parseServeArgs — spend limits", () => {
+  it("parses --max-concurrent-tool-calls / --max-prompt-chars / --max-output-tokens", () => {
+    const a = parse([
+      "--max-concurrent-tool-calls",
+      "2",
+      "--max-prompt-chars=5000",
+      "--max-output-tokens",
+      "2048",
+    ]);
+    expect(a.maxConcurrentToolCalls).toBe(2);
+    expect(a.maxPromptChars).toBe(5000);
+    expect(a.maxOutputTokens).toBe(2048);
+  });
+
+  it.each(["0", "-1", "1.5", "4abc", ""])("rejects --max-concurrent-tool-calls %j", (v) => {
+    expect(parseServeArgs([`--max-concurrent-tool-calls=${v}`])).toBeInstanceOf(Error);
+  });
+});

@@ -20,6 +20,16 @@ import {
   type HttpAuthConfig,
 } from "./auth.js";
 import { isHostAllowed, isOriginAllowed } from "./host.js";
+import {
+  DEFAULT_MAX_BODY_BYTES,
+  DEFAULT_MAX_CONCURRENT_TOOL_CALLS,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  DEFAULT_MAX_PROMPT_CHARS,
+  InFlightLimiter,
+  inspectToolCalls,
+  readBodyCapped,
+  type ToolCallPolicy,
+} from "./limits.js";
 
 export interface HttpHandlerOptions {
   /** MCP endpoint path (default `/mcp`). Requests must match this path exactly. */
@@ -44,6 +54,17 @@ export interface HttpHandlerOptions {
    * Origin (server-side MCP clients) are unaffected. Default: none allowed.
    */
   allowedOrigins?: readonly string[];
+  /**
+   * Max concurrent `tools/call` requests this handler runs (default 4). Each
+   * call fans out into participants × rounds provider calls; over the cap
+   * callers get HTTP 429. Scope is the handler instance — create one per
+   * process (Node) or per isolate (Workers).
+   */
+  maxConcurrentToolCalls?: number;
+  /** Longest `prompt` argument accepted, in characters (default 100 000). */
+  maxPromptChars?: number;
+  /** Highest `maxOutputTokens` argument a caller may request (default 8192). */
+  maxOutputTokens?: number;
 }
 
 /** Liveness only: no auth posture, panel shape, or version for scanners. */
@@ -64,6 +85,13 @@ export function createHttpHandler(
   const auth = options.auth ?? resolveHttpAuthConfig();
   const allowedHosts = options.allowedHosts;
   const allowedOrigins = options.allowedOrigins ?? [];
+  const limiter = new InFlightLimiter(
+    options.maxConcurrentToolCalls ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS,
+  );
+  const policy: ToolCallPolicy = {
+    maxPromptChars: options.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS,
+    maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+  };
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
@@ -113,7 +141,44 @@ export function createHttpHandler(
       return unauthorizedResponse(authResult.reason ?? "invalid");
     }
 
-    return handleStatelessMcpRequest(config, request);
+    const body = await readBodyCapped(request, DEFAULT_MAX_BODY_BYTES);
+    if (body.kind === "too-large") {
+      return jsonRpcError(
+        413,
+        -32000,
+        `Payload Too Large: request body must not exceed ${DEFAULT_MAX_BODY_BYTES} bytes`,
+        null,
+      );
+    }
+    if (body.kind === "error") {
+      return jsonRpcError(400, -32700, "Parse error: could not read request body", null);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body.text);
+    } catch {
+      return jsonRpcError(400, -32700, "Parse error: Invalid JSON", null);
+    }
+
+    const inspection = inspectToolCalls(parsed, policy);
+    if (inspection.kind === "reject") {
+      return jsonRpcError(inspection.status, inspection.code, inspection.message, inspection.id);
+    }
+    let release: (() => void) | undefined;
+    if (inspection.kind === "single") {
+      release = limiter.tryAcquire();
+      if (!release) {
+        return jsonRpcError(
+          429,
+          -32000,
+          `Too many concurrent tool calls (limit ${limiter.max}); retry shortly`,
+          inspection.id,
+          { "Retry-After": "5" },
+        );
+      }
+    }
+
+    return handleStatelessMcpRequest(config, request, parsed, release);
   };
 }
 
@@ -125,7 +190,8 @@ export function createHttpHandler(
 async function handleStatelessMcpRequest(
   config: LoadedConfig,
   request: Request,
-  parsedBody?: unknown,
+  parsedBody: unknown,
+  onTeardown: (() => void) | undefined,
 ): Promise<Response> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -147,6 +213,7 @@ async function handleStatelessMcpRequest(
     if (tornDown) return;
     tornDown = true;
     request.signal.removeEventListener("abort", teardown);
+    onTeardown?.();
     void server.close().catch(() => undefined);
     void transport.close().catch(() => undefined);
   };
@@ -158,10 +225,7 @@ async function handleStatelessMcpRequest(
 
   try {
     await server.connect(transport);
-    const response = await transport.handleRequest(
-      request,
-      parsedBody !== undefined ? { parsedBody } : undefined,
-    );
+    const response = await transport.handleRequest(request, { parsedBody });
     if (!response.body) {
       teardown();
       return response;

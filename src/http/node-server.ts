@@ -37,6 +37,12 @@ export interface NodeHttpServerOptions {
    * spends the operator's provider keys.
    */
   allowUnauthenticated?: boolean;
+  /** See HttpHandlerOptions.maxConcurrentToolCalls (default 4). */
+  maxConcurrentToolCalls?: number;
+  /** See HttpHandlerOptions.maxPromptChars (default 100 000). */
+  maxPromptChars?: number;
+  /** See HttpHandlerOptions.maxOutputTokens (default 8192). */
+  maxOutputTokens?: number;
 }
 
 export interface NodeHttpServerHandle {
@@ -75,6 +81,11 @@ export async function startNodeHttpServer(
     auth,
     ...(allowedHosts ? { allowedHosts } : {}),
     ...(options.allowedOrigins ? { allowedOrigins: options.allowedOrigins } : {}),
+    ...(options.maxConcurrentToolCalls !== undefined
+      ? { maxConcurrentToolCalls: options.maxConcurrentToolCalls }
+      : {}),
+    ...(options.maxPromptChars !== undefined ? { maxPromptChars: options.maxPromptChars } : {}),
+    ...(options.maxOutputTokens !== undefined ? { maxOutputTokens: options.maxOutputTokens } : {}),
   });
 
   const server = createServer((req, res) => {

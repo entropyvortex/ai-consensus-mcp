@@ -150,3 +150,28 @@ describe("bind-address safety (no open public endpoint by default)", () => {
     expect(writes.join("")).toMatch(/WARNING[\s\S]*without CONSENSUS_HTTP_API_KEY/);
   });
 });
+
+describe("Node server passes spend limits to the handler", () => {
+  it("enforces maxPromptChars configured on startNodeHttpServer", async () => {
+    handle = await startNodeHttpServer({
+      config: makeConfig(),
+      port: 0,
+      auth: { apiKey: undefined },
+      maxPromptChars: 10,
+      maxOutputTokens: 100,
+      maxConcurrentToolCalls: 1,
+    });
+    const port = boundPort(handle);
+    const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: MCP_HEADERS,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "consensus", arguments: { prompt: "x".repeat(11) } },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+});
