@@ -370,6 +370,32 @@ describe("cli backend claude driver", () => {
     expect(res.usage).toEqual({ inputTokens: 20_104, outputTokens: 50, totalTokens: 20_154 });
   });
 
+  // Contract: a claude child that exits before draining a large transcript
+  // (bad flag, auth failure, timeout or abort kill) is a seat Error, never an
+  // unhandled stdin EPIPE that takes the whole MCP server down.
+  // Guards the runner's stdin 'error' handling (#9) on the claude path.
+  it("treats an early exit with a large unread transcript as a seat error", async () => {
+    const { caller } = harness({
+      cache: new Map([["claude-sub", { ok: true }]]),
+      spawnImpl: () => {
+        const child = fakeChild();
+        queueMicrotask(() => {
+          child.stderr.write("error: unknown option\n");
+          child.stdout.end();
+          child.stderr.end();
+          child.emit("close", 1, null);
+          const err = new Error("write EPIPE") as NodeJS.ErrnoException;
+          err.code = "EPIPE";
+          child.stdin.emit("error", err);
+        });
+        return child;
+      },
+    });
+    await expect(caller(request("p1", { system: "S".repeat(200_000) }))).rejects.toThrow(
+      "cli driver claude exited 1",
+    );
+  });
+
   it("maps structured confidence by participant id, not by phase", async () => {
     const payload = {
       type: "result",
