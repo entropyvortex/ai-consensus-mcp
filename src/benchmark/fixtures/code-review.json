@@ -27,7 +27,13 @@
       "question": "Review the following HTTP-client wrapper for a service-to-service call:\n\n```ts\nasync function callBilling(req: Req) {\n  for (let attempt = 0; attempt < 5; attempt++) {\n    try { return await fetch(BILLING_URL, { body: JSON.stringify(req) }); }\n    catch (e) { await sleep(1000); }\n  }\n  throw new Error('billing unreachable');\n}\n```\n\nWhat's wrong with this under load? Be specific about the failure mechanism, the conditions that surface it, and the fix.",
       "panelId": "code_review_v2",
       "tags": ["code-review", "reliability", "http"],
-      "expectedTopics": ["retry storm", "exponential backoff", "jitter", "circuit breaker", "idempotency"]
+      "expectedTopics": [
+        "retry storm",
+        "exponential backoff",
+        "jitter",
+        "circuit breaker",
+        "idempotency"
+      ]
     }
   ]
 }

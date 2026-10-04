@@ -108,23 +108,83 @@ export async function handleStatelessMcpRequest(
     logHttpError(`transport: ${err.message}`);
   };
 
+  // Teardown must wait for the response body: in SSE mode `handleRequest`
+  // returns immediately with a stream the tool handler writes into later.
+  // Closing the server aborts in-flight handlers (and their upstream LLM
+  // fetches), so it runs exactly once — when the body finishes, errors, is
+  // cancelled by the client, or the request's own signal aborts.
+  let tornDown = false;
+  const teardown = (): void => {
+    if (tornDown) return;
+    tornDown = true;
+    request.signal.removeEventListener("abort", teardown);
+    void server.close().catch(() => undefined);
+    void transport.close().catch(() => undefined);
+  };
+  if (request.signal.aborted) {
+    teardown();
+    return new Response(null, { status: 499 });
+  }
+  request.signal.addEventListener("abort", teardown, { once: true });
+
   try {
     await server.connect(transport);
-    return await transport.handleRequest(
+    const response = await transport.handleRequest(
       request,
       parsedBody !== undefined ? { parsedBody } : undefined,
     );
+    if (!response.body) {
+      teardown();
+      return response;
+    }
+    return new Response(withTeardown(response.body, teardown), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
   } catch (err) {
+    teardown();
     logHttpErrorFrom(err, "request");
     return jsonResponse(500, {
       jsonrpc: "2.0",
       error: { code: -32603, message: sanitizeClientError() },
       id: null,
     });
-  } finally {
-    await server.close().catch(() => undefined);
-    await transport.close().catch(() => undefined);
   }
+}
+
+/**
+ * Re-expose `body` so that `onDone` runs once the stream ends, errors, or the
+ * consumer cancels it (client disconnect). Pull-based, so backpressure from
+ * the consumer propagates to the source.
+ */
+function withTeardown(
+  body: ReadableStream<Uint8Array>,
+  onDone: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      let chunk: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        chunk = await reader.read();
+      } catch (err) {
+        onDone();
+        controller.error(err);
+        return;
+      }
+      if (chunk.done) {
+        controller.close();
+        onDone();
+        return;
+      }
+      controller.enqueue(chunk.value);
+    },
+    async cancel(reason) {
+      onDone();
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
 }
 
 /** Strip trailing slashes without regex (avoids ReDoS on attacker-controlled paths). */
