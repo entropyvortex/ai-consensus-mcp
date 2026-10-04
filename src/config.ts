@@ -224,6 +224,12 @@ export interface ResolvedMemoryRuntime {
 export interface ResolveConfigOptions {
   /** Default true on Node. Worker entry passes false. */
   allowCli?: boolean;
+  /**
+   * Where each HTTP provider's `apiKeyEnv` is looked up. Defaults to
+   * `process.env`. Replaces it rather than merging, so a Worker can pass its
+   * `env` binding.
+   */
+  env?: Record<string, string | undefined>;
 }
 
 /**
@@ -274,7 +280,8 @@ export function loadConfigFromJson(
 /**
  * Parse and validate a raw config object into a fully-resolved `LoadedConfig`.
  * Does not read from disk and does not stat CLI binaries. HTTP providers still
- * require their apiKeyEnv to be set. CLI providers do not.
+ * require their apiKeyEnv to be set in `options.env` (default `process.env`).
+ * CLI providers do not.
  */
 export function resolveConfigFromRaw(
   raw: RawConfig,
@@ -287,6 +294,7 @@ export function resolveConfigFromRaw(
     const cliId = Object.keys(raw.providers).find((id) => raw.providers[id]?.transport === "cli");
     if (cliId !== undefined) throw new Error(workersCliError(cliId));
   }
+  const env = options?.env ?? process.env;
   const providers: Record<string, ResolvedProvider> = {};
   for (const [id, cfg] of Object.entries(raw.providers)) {
     if (cfg.transport === "cli") {
@@ -300,7 +308,7 @@ export function resolveConfigFromRaw(
       };
       continue;
     }
-    const apiKey = process.env[cfg.apiKeyEnv];
+    const apiKey = env[cfg.apiKeyEnv];
     if (!apiKey) {
       throw new Error(
         `ai-consensus-mcp: provider "${id}" requires env var ${cfg.apiKeyEnv} but it is not set.`,

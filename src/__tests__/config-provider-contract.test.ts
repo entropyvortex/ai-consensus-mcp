@@ -148,3 +148,26 @@ describe("allowCli false", () => {
     }
   });
 });
+
+// Contract: `env` replaces process.env for apiKeyEnv lookups, so a Worker can
+// pass its `env` binding; it is not merged with process.env.
+describe("ResolveConfigOptions.env", () => {
+  const raw = panel({ openai: { baseUrl: "https://api.openai.com/v1", apiKeyEnv: "BOUND_KEY" } });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("reads apiKeyEnv from the supplied env instead of process.env", () => {
+    vi.stubEnv("BOUND_KEY", "");
+    const cfg = loadConfigFromJson(JSON.stringify(raw), "worker", { env: { BOUND_KEY: "bound" } });
+    expect(cfg.providers["openai"]).toMatchObject({ transport: "http", apiKey: "bound" });
+  });
+
+  it("does not fall back to process.env when env is supplied", () => {
+    vi.stubEnv("BOUND_KEY", "from-process");
+    expect(() => loadConfigFromJson(JSON.stringify(raw), "worker", { env: {} })).toThrow(
+      'ai-consensus-mcp: provider "openai" requires env var BOUND_KEY but it is not set.',
+    );
+  });
+});
