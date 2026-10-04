@@ -555,25 +555,7 @@ export async function readRawConfig(path: string): Promise<RawConfig> {
       }`,
     );
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    throw new Error(
-      `ai-consensus-mcp: config at ${absolute} is not valid JSON: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-
-  const validated = RawConfigSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new Error(
-      `ai-consensus-mcp: config at ${absolute} failed validation:\n${formatZodError(validated.error)}`,
-    );
-  }
-  return validated.data;
+  return parseRawConfigJson(text, absolute);
 }
 
 /**
