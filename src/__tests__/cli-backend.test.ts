@@ -950,7 +950,7 @@ describe("cli backend grok oracle", () => {
     await Promise.all([clientA.close(), clientB.close(), serverA.close(), serverB.close()]);
   });
 
-  it("probes grok readiness without sending a prompt and caches the failure", async () => {
+  it("probes grok readiness without sending a prompt and re-probes after a failure", async () => {
     const cache = new Map<string, ReadinessState>();
     const spawns: string[][] = [];
     const note = await probeCliProviders({
@@ -998,15 +998,24 @@ describe("cli backend grok oracle", () => {
     });
     expect(failNote).toContain("not signed in");
     expect(failNote).toContain("grok login");
+    expect(failing.has("grok-sub")).toBe(false);
     const second = await probeCliProviders({
-      providers: { "grok-sub": grokProvider() },
+      providers: { "grok-sub": grokProvider({ authPath: "/tmp/missing-auth.json" }) },
+      env: parentEnv(),
       cache: failing,
+      accessImpl: () => {
+        accessCalls += 1;
+        return Promise.resolve();
+      },
       spawnImpl: () => {
-        throw new Error("should not spawn");
+        const child = fakeChild();
+        queueMicrotask(() => child.emit("close", 0, null));
+        return child;
       },
     });
-    expect(second).toContain("not signed in");
-    expect(accessCalls).toBe(1);
+    // The failure was not cached: the second probe ran and now succeeds.
+    expect(second).toContain("driver=grok ok");
+    expect(accessCalls).toBe(2);
   });
 
   it("skips readiness probes when CLI transports are disabled", async () => {

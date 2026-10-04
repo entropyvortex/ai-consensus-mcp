@@ -10,7 +10,7 @@ import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider } from "../../config.js";
 import { buildChildEnv } from "../env.js";
 import { ORACLE_JSON_SCHEMA_TEXT } from "../normalize.js";
-import { runOracle, spawnCaptured, type CliRuntimeDeps, type ReadinessState } from "../runner.js";
+import { runOracle, spawnCaptured, type CliRuntimeDeps } from "../runner.js";
 
 export const GROK_SYSTEM_OVERRIDE =
   "You are a text-only consensus oracle. Obey the prompt file exactly. Do not use tools, do not edit files, do not browse.";
@@ -58,71 +58,47 @@ export function buildGrokArgv(args: {
   ];
 }
 
-function isAbort(err: unknown): boolean {
-  return (
-    (err instanceof DOMException || err instanceof Error) &&
-    (err as { name?: string }).name === "AbortError"
-  );
-}
-
-function cacheFailure(
-  cache: Map<string, ReadinessState> | undefined,
-  id: string,
-  err: unknown,
-): void {
-  if (!cache || isAbort(err)) return;
-  const message = err instanceof Error ? err.message : String(err);
-  cache.set(id, { ok: false, message });
-}
-
 export async function probeGrok(
   provider: ResolvedCliProvider,
   deps: CliRuntimeDeps,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Only success is cached. A failure must be re-probed on the next call so
+  // "install grok" or "grok login" takes effect without a restart.
   const cache = deps.readinessCache;
-  const cached = cache?.get(provider.id);
-  if (cached) {
-    if (!cached.ok) throw new Error(cached.message);
-    return;
-  }
+  if (cache?.get(provider.id)?.ok) return;
   const parent = deps.env ?? process.env;
-  try {
-    const captured = await spawnCaptured({
-      driver: "grok",
-      bin: provider.bin,
-      argv: ["--version"],
-      cwd: tmpdir(),
-      env: buildChildEnv(parent, { disableGrokAutoupdater: true }),
-      stdin: "ignore",
-      timeoutMs: VERSION_TIMEOUT_MS,
-      signal,
-      spawnImpl: deps.spawnImpl,
-      scheduleTimeout: deps.scheduleTimeout,
-      now: deps.now,
-      killGraceMs: deps.killGraceMs,
-      installUrl: GROK_INSTALL_URL,
-      loginCommand: GROK_LOGIN,
-    });
-    if (captured.exitCode !== 0) {
-      throw new Error(
-        `cli driver grok: "${provider.bin} --version" failed (exit ${captured.exitCode ?? "null"}). Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
-      );
-    }
-    const authPath = grokAuthPath(provider.authPath, parent);
-    const accessImpl = deps.accessImpl ?? access;
-    try {
-      await accessImpl(authPath);
-    } catch {
-      throw new Error(
-        `cli driver grok: not signed in. Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
-      );
-    }
-    cache?.set(provider.id, { ok: true });
-  } catch (err) {
-    cacheFailure(cache, provider.id, err);
-    throw err;
+  const captured = await spawnCaptured({
+    driver: "grok",
+    bin: provider.bin,
+    argv: ["--version"],
+    cwd: tmpdir(),
+    env: buildChildEnv(parent, { disableGrokAutoupdater: true }),
+    stdin: "ignore",
+    timeoutMs: VERSION_TIMEOUT_MS,
+    signal,
+    spawnImpl: deps.spawnImpl,
+    scheduleTimeout: deps.scheduleTimeout,
+    now: deps.now,
+    killGraceMs: deps.killGraceMs,
+    installUrl: GROK_INSTALL_URL,
+    loginCommand: GROK_LOGIN,
+  });
+  if (captured.exitCode !== 0) {
+    throw new Error(
+      `cli driver grok: "${provider.bin} --version" failed (exit ${captured.exitCode ?? "null"}). Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
+    );
   }
+  const authPath = grokAuthPath(provider.authPath, parent);
+  const accessImpl = deps.accessImpl ?? access;
+  try {
+    await accessImpl(authPath);
+  } catch {
+    throw new Error(
+      `cli driver grok: not signed in. Install from ${GROK_INSTALL_URL} and run ${GROK_LOGIN}.`,
+    );
+  }
+  cache?.set(provider.id, { ok: true });
 }
 
 export async function runGrok(

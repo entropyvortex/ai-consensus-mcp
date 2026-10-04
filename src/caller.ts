@@ -8,6 +8,7 @@
 import type { ModelCaller, ModelCallRequest } from "ai-consensus-core";
 import { createOpenAICompatibleCaller } from "./adapter.js";
 import {
+  ensureCliReady,
   getRegisteredDriver,
   noteIgnoredSampling,
   type CliRuntimeDeps,
@@ -88,7 +89,7 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       now: opts.now,
       killGraceMs: opts.killGraceMs,
     };
-    await driver.probe(provider, runtime, req.signal);
+    await ensureCliReady(driver, provider, runtime, req.signal);
 
     await opts.cliGate.acquire(req.signal);
     try {
