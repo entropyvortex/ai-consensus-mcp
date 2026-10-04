@@ -64,3 +64,15 @@ describe("parseServeArgs — spend limits", () => {
     expect(parseServeArgs([`--max-concurrent-tool-calls=${v}`])).toBeInstanceOf(Error);
   });
 });
+
+describe("parseServeArgs — --port", () => {
+  it("accepts plain decimal ports in range", () => {
+    expect(parse(["--port", "0"]).port).toBe(0);
+    expect(parse(["--port=65535"]).port).toBe(65535);
+  });
+
+  it.each(["3000abc", "1e3", "-1", "65536", "0x50", " 80"])("rejects --port %j", (v) => {
+    // Contract: a typo never silently binds a different port.
+    expect(parseServeArgs(["--port", v])).toBeInstanceOf(Error);
+  });
+});

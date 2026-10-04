@@ -108,10 +108,8 @@ const VALUE_FLAGS: Record<string, ValueFlag> = {
     return undefined;
   },
   "--port": (out, v, flag) => {
-    const port = Number.parseInt(v, 10);
-    if (!Number.isFinite(port) || port < 0 || port > 65535) {
-      return new Error(`Invalid ${flag} value: ${v}`);
-    }
+    const port = parseStrictInt(v, 0, 65535);
+    if (port === undefined) return new Error(`Invalid ${flag} value: ${v} (expected 0-65535)`);
     out.port = port;
     return undefined;
   },
