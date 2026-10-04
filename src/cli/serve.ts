@@ -242,18 +242,10 @@ export async function runServe(argv: readonly string[]): Promise<number> {
   // One gate and one readiness cache for this OS process, shared by every MCP
   // server it creates: the stdio server, or each stateless HTTP request.
   // createMcpServer never constructs its own.
-  const readinessCache = new Map<string, ReadinessState>();
   const runtime: McpServerDeps = {
     cliGate: new CliGate(config.defaults.cliMaxInFlight ?? 2),
-    readinessCache,
+    readinessCache: new Map<string, ReadinessState>(),
   };
-  const readinessNote = await probeCliProviders({
-    providers: config.providers,
-    cache: readinessCache,
-  });
-  if (readinessNote !== "") {
-    process.stderr.write(readinessNote);
-  }
 
   return parsed.http ? runServeHttp(config, parsed, runtime) : runServeStdio(config, runtime);
 }
@@ -279,6 +271,26 @@ export function httpCliRefusal(
   );
 }
 
+/**
+ * Readiness probes start only once the transport is up, so a slow or hanging
+ * `--version` never delays the MCP initialize handshake (stdio) or the listen
+ * (HTTP). A call that arrives first shares the same in-flight probe through
+ * the readiness cache. Result is logged only.
+ */
+function startReadinessProbes(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  runtime: McpServerDeps,
+): void {
+  probeCliProviders({ providers: config.providers, cache: runtime.readinessCache }).then(
+    (note) => {
+      if (note !== "") process.stderr.write(note);
+    },
+    (err: unknown) => {
+      process.stderr.write(`${SERVER_NAME}: cli readiness probe failed: ${String(err)}\n`);
+    },
+  );
+}
+
 async function runServeStdio(
   config: Awaited<ReturnType<typeof loadConfig>>,
   runtime: McpServerDeps,
@@ -294,6 +306,7 @@ async function runServeStdio(
   const server = createMcpServer(config, runtime);
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  startReadinessProbes(config, runtime);
 
   return new Promise<number>((resolve) => {
     const shutdown = (reason: string) => {
@@ -328,6 +341,7 @@ async function runServeHttp(
     ...(args.maxPromptChars !== undefined ? { maxPromptChars: args.maxPromptChars } : {}),
     ...(args.maxOutputTokens !== undefined ? { maxOutputTokens: args.maxOutputTokens } : {}),
   });
+  startReadinessProbes(config, runtime);
 
   return new Promise<number>((resolve) => {
     const shutdown = (reason: string) => {
