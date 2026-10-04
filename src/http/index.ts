@@ -1,6 +1,5 @@
 export {
   createHttpHandler,
-  handleStatelessMcpRequest,
   sanitizeClientError,
   logHttpErrorFrom,
   normalizePath,

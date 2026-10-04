@@ -6,7 +6,6 @@
 // Health probes (/health) stay unauthenticated for deploy checks.
 
 import { timingSafeEqual } from "node:crypto";
-import type { ServerResponse } from "node:http";
 
 /** Env var name for the shared HTTP endpoint secret. */
 export const HTTP_API_KEY_ENV = "CONSENSUS_HTTP_API_KEY";
@@ -90,24 +89,5 @@ export function unauthorizedResponse(reason: HttpAuthFailureReason): Response {
         "WWW-Authenticate": 'Bearer realm="ai-consensus-mcp"',
       },
     },
-  );
-}
-
-/** Node ServerResponse helper matching unauthorizedResponse shape. */
-export function writeUnauthorized(res: ServerResponse, reason: HttpAuthFailureReason): void {
-  const message =
-    reason === "missing"
-      ? "Unauthorized: missing endpoint credentials. Send Authorization: Bearer <CONSENSUS_HTTP_API_KEY> or X-Consensus-Api-Key."
-      : "Unauthorized: invalid endpoint credentials.";
-  res.writeHead(401, {
-    "Content-Type": "application/json",
-    "WWW-Authenticate": 'Bearer realm="ai-consensus-mcp"',
-  });
-  res.end(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      error: { code: -32001, message },
-      id: null,
-    }),
   );
 }

@@ -6,7 +6,8 @@
 // gets a fresh transport + server pair (stateless, no session affinity).
 //
 // Use directly in Cloudflare Workers, Deno, Bun, or any runtime with
-// fetch(Request) → Response. For Node's http.Server, see node-server.ts.
+// fetch(Request) → Response. node-server.ts adapts Node's http.Server onto
+// this same handler, so both runtimes share one policy path.
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { LoadedConfig } from "../config.js";
@@ -90,10 +91,11 @@ export function createHttpHandler(
 }
 
 /**
- * Handle a single MCP request in stateless mode. Exported for Node adapters
- * that use StreamableHTTPServerTransport instead of raw Request/Response.
+ * Handle a single MCP request in stateless mode: a fresh server + transport
+ * pair whose lifetime is bound to the response body. Applies no routing,
+ * auth, or request policy — callers go through `createHttpHandler`.
  */
-export async function handleStatelessMcpRequest(
+async function handleStatelessMcpRequest(
   config: LoadedConfig,
   request: Request,
   parsedBody?: unknown,

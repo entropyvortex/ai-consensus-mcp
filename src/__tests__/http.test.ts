@@ -1,78 +1,20 @@
-// Integration tests for the stateless Streamable HTTP MCP path.
+// Integration tests for the stateless Streamable HTTP MCP path on Node.
 // Spins up a real Node http.Server, connects with the SDK's
 // StreamableHTTPClientTransport, and exercises listTools, validation,
 // progress notifications, and cancellation.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { request as httpRequest } from "node:http";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ProgressNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
-import type { LoadedConfig } from "../config.js";
 import { startNodeHttpServer, type NodeHttpServerHandle } from "../http/node-server.js";
-import { PERSONAS } from "../personas.js";
 import { BUILT_IN_PRESETS } from "../presets/definitions/index.js";
-import { createHttpHandler, sanitizeClientError } from "../http/handler.js";
-
-function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
-  const base: LoadedConfig = {
-    sourcePath: "/fake/http-test",
-    providers: {
-      test: {
-        id: "test",
-        baseUrl: "https://api.test.local",
-        apiKey: "k",
-        extraHeaders: {},
-      },
-    },
-    participants: [
-      { id: "p1", modelId: "model-a", persona: PERSONAS[0]! },
-      { id: "p2", modelId: "model-b", persona: PERSONAS[1]! },
-    ],
-    providerByParticipant: { p1: "test", p2: "test" },
-    memory: {
-      enabled: false,
-      storageRoot: "/tmp/test-memory",
-      maxResults: 1000,
-      maxAgeDays: 365,
-      raw: undefined,
-    },
-    judge: undefined,
-    defaults: {
-      maxRounds: 4,
-      earlyStop: true,
-      convergenceDelta: 3,
-      disagreementThreshold: 20,
-      blindFirstRound: true,
-      randomizeOrder: true,
-      participantTemperature: 0.7,
-      maxOutputTokens: 1500,
-      useJudge: false,
-    },
-  };
-  return { ...base, ...overrides };
-}
-
-function makeSSEResponse(payloads: object[]): Response {
-  const encoder = new TextEncoder();
-  const text = payloads.map((p) => `data: ${JSON.stringify(p)}\n\n`).join("") + "data: [DONE]\n\n";
-  const stream = new ReadableStream<Uint8Array>({
-    start(c) {
-      c.enqueue(encoder.encode(text));
-      c.close();
-    },
-  });
-  return new Response(stream, { status: 200, statusText: "OK" });
-}
-
-function requestUrl(input: string | URL | Request): string {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.href;
-  return input.url;
-}
+import { sanitizeClientError } from "../http/handler.js";
+import { MCP_HEADERS, eventually, makeConfig, mockProvider, toolCall } from "./http-fixtures.js";
 
 async function connectClient(baseUrl: string): Promise<{
   client: Client;
-  transport: StreamableHTTPClientTransport;
   close: () => Promise<void>;
 }> {
   const transport = new StreamableHTTPClientTransport(new URL(baseUrl));
@@ -80,7 +22,6 @@ async function connectClient(baseUrl: string): Promise<{
   await client.connect(transport);
   return {
     client,
-    transport,
     close: async () => {
       await client.close();
       await transport.close();
@@ -88,24 +29,8 @@ async function connectClient(baseUrl: string): Promise<{
   };
 }
 
-describe("stateless Streamable HTTP MCP", () => {
+describe("stateless Streamable HTTP MCP (Node server)", () => {
   let httpServer: NodeHttpServerHandle | undefined;
-  const originalFetch = globalThis.fetch.bind(globalThis);
-  let providerFetchCount = 0;
-
-  beforeEach(() => {
-    providerFetchCount = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const url = requestUrl(input);
-      if (url.includes("api.test.local")) {
-        providerFetchCount += 1;
-        return makeSSEResponse([
-          { choices: [{ delta: { content: "Analysis.\n\nCONFIDENCE: 72" } }] },
-        ]);
-      }
-      return originalFetch(input, init);
-    });
-  });
 
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -121,6 +46,7 @@ describe("stateless Streamable HTTP MCP", () => {
       host: "127.0.0.1",
       port: 0,
       path: "/mcp",
+      auth: { apiKey: undefined },
     });
     const addr = httpServer.server.address();
     if (!addr || typeof addr === "string") throw new Error("expected bound port");
@@ -134,9 +60,8 @@ describe("stateless Streamable HTTP MCP", () => {
     const names = tools.tools.map((t) => t.name);
 
     expect(names).toContain("consensus");
-    const presetNames = BUILT_IN_PRESETS.map((p) => p.toolName);
-    for (const name of presetNames) {
-      expect(names).toContain(name);
+    for (const preset of BUILT_IN_PRESETS) {
+      expect(names).toContain(preset.toolName);
     }
     expect(names.filter((n) => n.startsWith("consensus_")).length).toBeGreaterThanOrEqual(5);
 
@@ -144,6 +69,7 @@ describe("stateless Streamable HTTP MCP", () => {
   });
 
   it("returns validation errors for invalid tool input without calling providers", async () => {
+    const provider = mockProvider("reply");
     const url = await startTestServer();
     const env = await connectClient(url);
     const result = await env.client.callTool({
@@ -151,28 +77,14 @@ describe("stateless Streamable HTTP MCP", () => {
       arguments: { prompt: "" },
     });
     expect(result.isError).toBe(true);
-    expect(providerFetchCount).toBe(0);
+    expect(provider.calls()).toBe(0);
 
     await env.close();
   });
 
   it("forwards engine progress notifications during a consensus run", async () => {
-    const url = await startTestServer(
-      makeConfig({
-        defaults: {
-          maxRounds: 1,
-          earlyStop: false,
-          convergenceDelta: 3,
-          disagreementThreshold: 20,
-          blindFirstRound: true,
-          randomizeOrder: false,
-          participantTemperature: 0.7,
-          maxOutputTokens: 1500,
-          useJudge: false,
-        },
-      }),
-    );
-
+    const provider = mockProvider("reply");
+    const url = await startTestServer();
     const env = await connectClient(url);
     const progressMessages: string[] = [];
 
@@ -198,46 +110,25 @@ describe("stateless Streamable HTTP MCP", () => {
     expect(result.isError).not.toBe(true);
     expect(progressMessages.some((m) => m.includes("Round 1"))).toBe(true);
     expect(progressMessages.some((m) => m.includes("thinking"))).toBe(true);
-    expect(providerFetchCount).toBeGreaterThan(0);
+    expect(provider.calls()).toBeGreaterThan(0);
 
     await env.close();
   });
 
-  it("honors AbortSignal cancellation from the client", async () => {
-    vi.restoreAllMocks();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      const url = requestUrl(input);
-      if (url.includes("api.test.local")) {
-        return new Promise<Response>((_resolve, reject) => {
-          const signal = init?.signal;
-          if (signal?.aborted) {
-            reject(new DOMException("aborted", "AbortError"));
-            return;
-          }
-          signal?.addEventListener("abort", () => {
-            reject(new DOMException("aborted", "AbortError"));
-          });
-        });
-      }
-      return originalFetch(input, init);
-    });
-
-    const url = await startTestServer(
-      makeConfig({
-        defaults: {
-          maxRounds: 2,
-          earlyStop: false,
-          convergenceDelta: 3,
-          disagreementThreshold: 20,
-          blindFirstRound: true,
-          randomizeOrder: false,
-          participantTemperature: 0.7,
-          maxOutputTokens: 1500,
-          useJudge: false,
-        },
-      }),
-    );
-
+  it("client cancellation that closes the transport aborts the upstream provider fetches", async () => {
+    // Contract: cancelling a call stops spending the operator's provider
+    // budget. Asserting only that the client promise rejects (as this test
+    // originally did) passes even if the server keeps the upstream calls
+    // running — the client SDK rejects locally on abort.
+    //
+    // Stateless limitation (by design): the SDK client's per-call AbortSignal
+    // sends notifications/cancelled on a *new* POST, which in stateless mode
+    // reaches a fresh server that cannot see the in-flight call (request ids
+    // are client-chosen and collide across callers, so a cross-request
+    // registry would let one caller cancel another's work). The connection
+    // closing is the cancellation channel; closing the transport delivers it.
+    const provider = mockProvider("hang");
+    const url = await startTestServer();
     const env = await connectClient(url);
     const controller = new AbortController();
 
@@ -249,26 +140,38 @@ describe("stateless Streamable HTTP MCP", () => {
       undefined,
       { signal: controller.signal, timeout: 30_000 },
     );
+    await provider.waitForCalls(2);
+    expect(provider.aborts()).toBe(0);
 
     controller.abort();
-
     await expect(callPromise).rejects.toThrow();
-
     await env.close();
+
+    await eventually(() => provider.aborts() === 2);
   });
 
-  it("exposes a health endpoint for deploy probes", async () => {
-    const handler = createHttpHandler(makeConfig());
-    const response = await handler(new Request("http://localhost/health"));
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      status: string;
-      server: string;
-      authRequired: boolean;
-    };
-    expect(body.status).toBe("ok");
-    expect(body.server).toBe("ai-consensus-mcp");
-    expect(body.authRequired).toBe(false);
+  it("a raw TCP disconnect mid-call aborts the upstream provider fetches", async () => {
+    // Contract: the Node adapter maps a dropped connection (no MCP
+    // cancellation notification at all) onto upstream aborts.
+    const provider = mockProvider("hang");
+    const url = new URL(await startTestServer());
+    const body = JSON.stringify(toolCall(9, { prompt: "drop me", maxRounds: 1, judge: false }));
+    const req = httpRequest({
+      host: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: "POST",
+      headers: { ...MCP_HEADERS, "content-length": Buffer.byteLength(body) },
+    });
+    req.on("error", () => undefined);
+    req.end(body);
+
+    await provider.waitForCalls(2);
+    expect(provider.aborts()).toBe(0);
+
+    req.destroy();
+
+    await eventually(() => provider.aborts() === 2);
   });
 });
 

@@ -1,26 +1,18 @@
 // ─────────────────────────────────────────────────────────────
 // Node.js HTTP server — Streamable HTTP MCP over http.Server
 // ─────────────────────────────────────────────────────────────
-// Thin wrapper around the stateless per-request pattern using
-// StreamableHTTPServerTransport (Node IncomingMessage/ServerResponse).
+// Thin IncomingMessage/ServerResponse ⇄ Request/Response adapter around
+// `createHttpHandler`, so Node and Web Standard runtimes (Workers) share a
+// single code path for routing, auth, and request policy. Client
+// disconnects abort the Request's signal and cancel the response body, which
+// tears down the per-request MCP server and aborts upstream provider calls.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { Readable } from "node:stream";
 import type { LoadedConfig } from "../config.js";
-import { createMcpServer } from "../server.js";
-import {
-  logHttpErrorFrom,
-  normalizePath,
-  sanitizeClientError,
-  type HealthInfo,
-} from "./handler.js";
-import {
-  resolveHttpAuthConfig,
-  verifyHttpAuth,
-  writeUnauthorized,
-  type HttpAuthConfig,
-} from "./auth.js";
-import { SERVER_NAME, SERVER_VERSION } from "../version.js";
+import { SERVER_NAME } from "../version.js";
+import { resolveHttpAuthConfig, type HttpAuthConfig } from "./auth.js";
+import { createHttpHandler, logHttpErrorFrom, sanitizeClientError } from "./handler.js";
 
 export interface NodeHttpServerOptions {
   config: LoadedConfig;
@@ -50,37 +42,10 @@ export async function startNodeHttpServer(
   const mcpPath = options.path ?? "/mcp";
   const auth = options.auth ?? resolveHttpAuthConfig();
 
+  const handler = createHttpHandler(options.config, { mcpPath, auth });
+
   const server = createServer((req, res) => {
-    void (async () => {
-      try {
-        if (tryServeHealth(req, res, options.config, mcpPath, auth)) return;
-        if (req.url && !matchesMcpPath(req.url, mcpPath)) {
-          res.writeHead(404);
-          res.end("Not Found");
-          return;
-        }
-
-        const authResult = verifyHttpAuth(auth, nodeHeaders(req));
-        if (!authResult.ok) {
-          writeUnauthorized(res, authResult.reason ?? "invalid");
-          return;
-        }
-
-        await handleNodeMcpRequest(options.config, req, res);
-      } catch (err) {
-        logHttpErrorFrom(err, "handler");
-        if (!res.headersSent) {
-          res.writeHead(500, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              jsonrpc: "2.0",
-              error: { code: -32603, message: sanitizeClientError() },
-              id: null,
-            }),
-          );
-        }
-      }
-    })();
+    void serveNodeRequest(handler, req, res);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -92,7 +57,7 @@ export async function startNodeHttpServer(
   const boundPort = bound && typeof bound !== "string" ? bound.port : port;
   const boundHost = bound && typeof bound !== "string" && bound.address ? bound.address : host;
   const displayHost = boundHost === "0.0.0.0" || boundHost === "::" ? "127.0.0.1" : boundHost;
-  const url = `http://${displayHost}:${boundPort}${mcpPath}`;
+  const url = `http://${displayHost.includes(":") ? `[${displayHost}]` : displayHost}:${boundPort}${mcpPath}`;
   const authNote = auth.apiKey ? ", auth=required (CONSENSUS_HTTP_API_KEY)" : ", auth=disabled";
   process.stderr.write(
     `${SERVER_NAME} http ready — ${options.config.participants.length} participant(s), ` +
@@ -110,71 +75,107 @@ export async function startNodeHttpServer(
     url,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
         server.close((err) => (err ? reject(err) : resolve()));
       }),
   };
 }
 
-async function handleNodeMcpRequest(
-  config: LoadedConfig,
+/** Bridge one Node request through the Web Standard handler. */
+export async function serveNodeRequest(
+  handler: (request: Request) => Promise<Response>,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+  const disconnect = new AbortController();
+  // `close` fires on normal completion too; only a close before the response
+  // finished means the client went away.
+  res.once("close", () => {
+    if (!res.writableFinished) disconnect.abort();
   });
-  const server = createMcpServer(config);
-
-  transport.onerror = (err: Error) => {
-    process.stderr.write(`${SERVER_NAME} http transport: ${err.message}\n`);
-  };
 
   try {
-    await server.connect(transport);
-    await transport.handleRequest(req, res);
-  } finally {
-    await server.close().catch(() => undefined);
-    await transport.close().catch(() => undefined);
+    const response = await handler(toWebRequest(req, disconnect.signal));
+    await writeWebResponse(response, res, disconnect.signal);
+  } catch (err) {
+    logHttpErrorFrom(err, "handler");
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32603, message: sanitizeClientError() },
+          id: null,
+        }),
+      );
+    } else {
+      res.destroy();
+    }
   }
 }
 
-function nodeHeaders(req: IncomingMessage): { get(name: string): string | null } {
-  return {
-    get(name: string) {
-      const v = req.headers[name.toLowerCase()];
-      if (v === undefined) return null;
-      return Array.isArray(v) ? (v[0] ?? null) : v;
-    },
-  };
+function toWebRequest(req: IncomingMessage, signal: AbortSignal): Request {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value === undefined || name.startsWith(":")) continue;
+    if (Array.isArray(value)) for (const v of value) headers.append(name, v);
+    else headers.set(name, value);
+  }
+  // The URL's authority is fixed: routing only needs the path, and Host
+  // validation reads the raw header so a hostile Host cannot break parsing.
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  return new Request(url, {
+    method: req.method ?? "GET",
+    headers,
+    signal,
+    ...(hasBody
+      ? {
+          body: Readable.toWeb(req) as ReadableStream<Uint8Array>,
+          duplex: "half",
+        }
+      : {}),
+  });
 }
 
-function tryServeHealth(
-  req: IncomingMessage,
+async function writeWebResponse(
+  response: Response,
   res: ServerResponse,
-  config: LoadedConfig,
-  mcpPath: string,
-  auth: HttpAuthConfig,
-): boolean {
-  if (req.method !== "GET" || !req.url) return false;
-  const pathname = normalizePath(new URL(req.url, "http://localhost").pathname);
-  if (pathname !== "/health" && pathname !== `${mcpPath}/health`) return false;
+  disconnected: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, name) => {
+    headers[name] = value;
+  });
+  res.writeHead(response.status, headers);
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  res.flushHeaders();
 
-  const body: HealthInfo = {
-    status: "ok",
-    server: SERVER_NAME,
-    version: SERVER_VERSION,
-    participants: config.participants.length,
-    providers: Object.keys(config.providers).length,
-    memory: config.memory.enabled,
-    transport: "streamable-http-stateless",
-    authRequired: Boolean(auth.apiKey),
-  };
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
-  return true;
-}
-
-function matchesMcpPath(url: string, mcpPath: string): boolean {
-  const pathname = normalizePath(new URL(url, "http://localhost").pathname);
-  return pathname === normalizePath(mcpPath);
+  const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  disconnected.addEventListener("abort", cancel, { once: true });
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!res.write(value)) {
+        await new Promise<void>((resolve) => {
+          const settle = () => {
+            res.off("drain", settle);
+            res.off("close", settle);
+            resolve();
+          };
+          res.once("drain", settle);
+          res.once("close", settle);
+        });
+      }
+      if (disconnected.aborted) return;
+    }
+    res.end();
+  } finally {
+    disconnected.removeEventListener("abort", cancel);
+  }
 }
