@@ -520,7 +520,8 @@ function asCliProvider(cfg: RawProviderConfig | undefined): CliRawProvider | und
 }
 
 /**
- * CLI subscription form. Fields are driver, bin, timeoutMs, and authPath.
+ * CLI subscription form. Fields are driver, bin, timeoutMs, and (grok only)
+ * authPath.
  * There is no apiKeyEnv and no baseUrl. Codex is not a choice: the driver
  * is refused until `codex exec --help` matches, and this form must not
  * present it as a working seat.
@@ -587,18 +588,28 @@ async function editCliProviderForm(
     if (value !== undefined && value !== null) timeoutMs = value;
   }
 
-  const wantsAuth = await confirm({
-    message: "Set authPath? (optional; otherwise the CLI's own login file is used)",
-    default: existing?.authPath !== undefined,
-  });
+  // authPath is read only by the grok driver, and only as the file whose
+  // presence counts as "signed in". It does not change which login the CLI
+  // uses. Other drivers ignore it, so the prompt is grok-only; an existing
+  // value is kept untouched when the driver does not change.
   let authPath: string | undefined;
-  if (wantsAuth) {
-    const value = await input({
-      message: "authPath",
-      default: existing?.authPath ?? "",
+  if (driver === "grok") {
+    const wantsAuth = await confirm({
+      message:
+        "Set authPath? (path checked for sign-in readiness; default ~/.grok/auth.json. " +
+        "It does not change which login grok uses.)",
+      default: existing?.driver === "grok" && existing.authPath !== undefined,
     });
-    const trimmed = value.trim();
-    authPath = trimmed.length > 0 ? trimmed : undefined;
+    if (wantsAuth) {
+      const value = await input({
+        message: "authPath",
+        default: existing?.driver === "grok" ? (existing.authPath ?? "") : "",
+      });
+      const trimmed = value.trim();
+      authPath = trimmed.length > 0 ? trimmed : undefined;
+    }
+  } else if (existing?.driver === driver) {
+    authPath = existing.authPath;
   }
 
   const cfg: RawProviderConfig = {

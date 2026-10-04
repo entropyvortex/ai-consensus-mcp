@@ -15,6 +15,7 @@ import {
 
 interface PromptLike {
   message?: string;
+  default?: unknown;
   choices?: readonly { value?: unknown }[];
 }
 
@@ -48,6 +49,18 @@ function answer(message: RegExp, value: unknown): (prompt: PromptLike) => unknow
       throw new Error(`expected ${message} but got ${JSON.stringify(text)}`);
     }
     return value;
+  };
+}
+
+/** Accept the prompt's own default, after checking it is the expected prompt. */
+function acceptDefault(message: RegExp, expected?: unknown): (prompt: PromptLike) => unknown {
+  return (prompt) => {
+    const text = prompt.message ?? "";
+    if (!message.test(text)) {
+      throw new Error(`expected ${message} but got ${JSON.stringify(text)}`);
+    }
+    if (expected !== undefined) expect(prompt.default).toEqual(expected);
+    return prompt.default;
   };
 }
 
@@ -239,5 +252,76 @@ describe("config wizard", () => {
     expect(() => resolveConfigFromRaw(raw, examplePath, { allowCli: false })).toThrow(
       /Cloudflare Workers/,
     );
+  });
+
+  // Contract: accepting every default on an existing claude seat changes
+  // nothing, including an authPath the wizard no longer prompts for.
+  it("editing a claude provider with authPath and accepting defaults round-trips", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    const path = join(dir, "consensus.config.json");
+    const raw = mixedPanel();
+    raw.providers["claude-sub"] = {
+      transport: "cli",
+      driver: "claude",
+      bin: "/usr/local/bin/claude",
+      timeoutMs: 90000,
+      authPath: "/home/u/.claude/auth.json",
+    };
+    await writeRawConfig(path, raw);
+    const before = await readRawConfig(path);
+    script([
+      answer(/What would you like to do/, "providers"),
+      answer(/^Providers$/, "claude-sub"),
+      answer(/Provider "claude-sub"/, "edit"),
+      acceptDefault(/Provider id/, "claude-sub"),
+      acceptDefault(/CLI driver/, "claude"),
+      acceptDefault(/Override the binary/, true),
+      acceptDefault(/Binary name or path/, "/usr/local/bin/claude"),
+      acceptDefault(/Override timeoutMs/, true),
+      acceptDefault(/^timeoutMs$/, 90000),
+      answer(/^Providers$/, "__back__"),
+      answer(/What would you like to do/, "save"),
+    ]);
+
+    expect(await runConfig(["--config", path])).toBe(0);
+    expect(prompts.queue).toEqual([]);
+    expect((await readRawConfig(path)).providers).toEqual(before.providers);
+  });
+
+  // Contract: the authPath prompt is grok-only and describes what the path
+  // does (a sign-in readiness check), not a login override.
+  it("offers authPath only for grok, worded as the sign-in readiness path", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    const path = join(dir, "consensus.config.json");
+    await writeRawConfig(path, httpPanel());
+    script([
+      answer(/What would you like to do/, "providers"),
+      answer(/^Providers$/, "__add__"),
+      answer(/Provider transport/, "cli"),
+      answer(/Provider id/, "grok-sub"),
+      answer(/CLI driver/, "grok"),
+      answer(/Override the binary/, false),
+      answer(/Override timeoutMs/, false),
+      answer(/sign-in readiness/, true),
+      answer(/authPath/, "/home/u/.grok/auth.json"),
+      answer(/^Providers$/, "__add__"),
+      answer(/Provider transport/, "cli"),
+      answer(/Provider id/, "claude-sub"),
+      answer(/CLI driver/, "claude"),
+      answer(/Override the binary/, false),
+      answer(/Override timeoutMs/, false),
+      answer(/^Providers$/, "__back__"),
+      answer(/What would you like to do/, "save"),
+    ]);
+
+    expect(await runConfig(["--config", path])).toBe(0);
+    expect(prompts.queue).toEqual([]);
+    const after = await readRawConfig(path);
+    expect(after.providers["grok-sub"]).toEqual({
+      transport: "cli",
+      driver: "grok",
+      authPath: "/home/u/.grok/auth.json",
+    });
+    expect(after.providers["claude-sub"]).toEqual({ transport: "cli", driver: "claude" });
   });
 });
