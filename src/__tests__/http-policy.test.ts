@@ -79,6 +79,17 @@ describe("DNS-rebinding protection (Host / Origin)", () => {
     expect(wrongPort.status).toBe(403);
   });
 
+  it("checks the request URL authority when no Host header is present", async () => {
+    // Contract: a Request built in code (embedding, Deno/Bun, tests) carries
+    // no Host header; its URL authority is what a server runtime derives from
+    // Host, so allowedHosts applies to it instead of rejecting every call.
+    const handler = createHttpHandler(makeConfig(), { ...NO_AUTH, allowedHosts: ["localhost"] });
+    const ok = await handler(mcpRequest(INITIALIZE, { url: "http://localhost:3000/mcp" }));
+    expect(ok.status).toBe(200);
+    const bad = await handler(mcpRequest(INITIALIZE, { url: "http://attacker.example/mcp" }));
+    expect(bad.status).toBe(403);
+  });
+
   it("skips Host validation when allowedHosts is unset (public Workers default)", async () => {
     const handler = createHttpHandler(makeConfig(), NO_AUTH);
     const res = await handler(mcpRequest(INITIALIZE, { headers: { host: "anything.example" } }));

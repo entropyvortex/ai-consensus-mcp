@@ -110,9 +110,12 @@ export function createHttpHandler(
       return new Response("Not Found", { status: 404 });
     }
 
-    if (allowedHosts && !isHostAllowed(request.headers.get("host"), allowedHosts)) {
+    // Server runtimes always set Host; a Request constructed in code has none,
+    // and its URL authority is what a runtime would have derived from Host.
+    const host = request.headers.get("host") ?? new URL(request.url).host;
+    if (allowedHosts && !isHostAllowed(host, allowedHosts)) {
       logHttpError(
-        `rejected Host ${JSON.stringify(request.headers.get("host"))} — add it to allowedHosts (--allowed-hosts) if legitimate`,
+        `rejected Host ${JSON.stringify(host)} — add it to allowedHosts (--allowed-hosts) if legitimate`,
       );
       return jsonRpcError(403, -32000, "Forbidden: Host header not allowed", null);
     }
