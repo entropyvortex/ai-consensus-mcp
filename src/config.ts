@@ -7,7 +7,7 @@
 
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { isAbsolute as isAbsolutePath, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
@@ -40,6 +40,45 @@ const HttpProviderConfigSchema = z.object({
   authPath: cliOnlyKey("authPath"),
 });
 
+function hasControlCharacter(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+// `bin` is a bare command name looked up on PATH, or an absolute path. A
+// relative path would resolve against the runner's scratch cwd, not the config
+// file, and a leading "-" reads as an option.
+function binIssue(bin: string): string | undefined {
+  if (hasControlCharacter(bin)) return "bin must not contain control characters";
+  if (isAbsolutePath(bin)) return undefined;
+  if (/[\\/]/.test(bin)) {
+    return 'bin must be a bare command name on PATH (e.g. "grok") or an absolute path; relative paths are not allowed';
+  }
+  if (/\s/.test(bin)) return "bin must not contain whitespace unless it is an absolute path";
+  if (bin.startsWith("-")) return 'bin must not start with "-"';
+  return undefined;
+}
+
+// `authPath` is absolute or "~/"-prefixed; "~" is expanded at resolve time.
+function authPathIssue(authPath: string): string | undefined {
+  if (hasControlCharacter(authPath)) return "authPath must not contain control characters";
+  if (authPath.startsWith("~/") || isAbsolutePath(authPath)) return undefined;
+  return 'authPath must be an absolute path or start with "~/"';
+}
+
+function pathString(issue: (value: string) => string | undefined) {
+  return z
+    .string()
+    .min(1)
+    .superRefine((value, ctx) => {
+      const message = issue(value);
+      if (message !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+    });
+}
+
 // The CLI arm is new, so it is strict: a typo beside `driver` fails instead of
 // being stripped.
 
@@ -47,9 +86,9 @@ const CliProviderConfigSchema = z
   .object({
     transport: z.literal("cli"),
     driver: z.enum(["grok", "claude", "codex"]),
-    bin: z.string().min(1).optional(),
+    bin: pathString(binIssue).optional(),
     timeoutMs: z.number().int().min(1_000).max(600_000).optional(),
-    authPath: z.string().min(1).optional(),
+    authPath: pathString(authPathIssue).optional(),
   })
   .strict();
 
@@ -304,7 +343,7 @@ export function resolveConfigFromRaw(
         driver: cfg.driver,
         bin: cfg.bin ?? cfg.driver,
         timeoutMs: cfg.timeoutMs ?? 120_000,
-        authPath: cfg.authPath,
+        authPath: expandHome(cfg.authPath),
       };
       continue;
     }
@@ -398,6 +437,10 @@ export function resolveConfigFromRaw(
     defaults,
     memory,
   };
+}
+
+function expandHome(path: string | undefined): string | undefined {
+  return path?.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }
 
 function resolveAllowCli(options: ResolveConfigOptions | undefined): boolean {

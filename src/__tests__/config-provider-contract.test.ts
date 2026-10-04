@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 import { formatZodError, loadConfigFromJson } from "../config.js";
 
@@ -169,5 +171,58 @@ describe("ResolveConfigOptions.env", () => {
     expect(() => loadConfigFromJson(JSON.stringify(raw), "worker", { env: {} })).toThrow(
       'ai-consensus-mcp: provider "openai" requires env var BOUND_KEY but it is not set.',
     );
+  });
+});
+
+// Contract: `bin` is a bare command name resolved on PATH or an absolute path.
+// Relative paths would resolve against the runner's scratch cwd, a leading "-"
+// reads as an option, and whitespace/control characters are never a command.
+// `authPath` is absolute or "~/"-prefixed, and "~" expands at resolve time.
+describe("CLI bin and authPath", () => {
+  const cli = (extra: Record<string, unknown>) =>
+    panel({ g: { transport: "cli", driver: "grok", ...extra } });
+  const resolve = (extra: Record<string, unknown>) =>
+    loadConfigFromJson(JSON.stringify(cli(extra)), "test", { env: {} }).providers["g"];
+
+  it.each(["grok", "grok-beta_2.1", "/usr/local/bin/grok", "/Applications/My App/grok"])(
+    "accepts bin %j",
+    (bin) => {
+      expect(resolve({ bin })).toMatchObject({ bin });
+    },
+  );
+
+  const RELATIVE =
+    'bin must be a bare command name on PATH (e.g. "grok") or an absolute path; relative paths are not allowed';
+  it.each([
+    ["./grok", RELATIVE],
+    ["bin/grok", RELATIVE],
+    ["../x", RELATIVE],
+    ["bin\\grok", RELATIVE],
+    ["grok cli", "bin must not contain whitespace unless it is an absolute path"],
+    ["-grok", 'bin must not start with "-"'],
+    ["grok\n", "bin must not contain control characters"],
+    ["/usr/bin/gr\u0000ok", "bin must not contain control characters"],
+  ])("rejects bin %j", (bin, message) => {
+    expect(validationLines(cli({ bin }))).toEqual([`  • providers.g.bin: ${message}`]);
+  });
+
+  it("expands a ~/ authPath against the home directory", () => {
+    expect(resolve({ authPath: "~/.grok/auth.json" })).toMatchObject({
+      authPath: join(homedir(), ".grok/auth.json"),
+    });
+  });
+
+  it("keeps an absolute authPath unchanged", () => {
+    expect(resolve({ authPath: "/etc/grok/auth.json" })).toMatchObject({
+      authPath: "/etc/grok/auth.json",
+    });
+  });
+
+  it.each([
+    ["auth.json", 'authPath must be an absolute path or start with "~/"'],
+    ["~grok/auth.json", 'authPath must be an absolute path or start with "~/"'],
+    ["/a\u0007b.json", "authPath must not contain control characters"],
+  ])("rejects authPath %j", (authPath, message) => {
+    expect(validationLines(cli({ authPath }))).toEqual([`  • providers.g.authPath: ${message}`]);
   });
 });
