@@ -206,6 +206,9 @@ function trackChild(child: ChildProcess): void {
   };
   child.once("exit", untrack);
   child.once("close", untrack);
+  // A spawn error means no process to kill later; the error path has
+  // already sent its best-effort SIGKILL.
+  child.once("error", untrack);
 }
 
 /** SIGTERM to SIGKILL escalation delay when the caller does not set one. */

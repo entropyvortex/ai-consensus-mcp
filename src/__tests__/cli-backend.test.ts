@@ -524,8 +524,12 @@ describe("cli backend grok oracle", () => {
 
   it("times out with ETIMEDOUT and a process-group SIGTERM, not AbortError", async () => {
     const kills: { pid: number; signal: NodeJS.Signals | undefined }[] = [];
+    let live: FakeChild | undefined;
     vi.spyOn(process, "kill").mockImplementation(((pid: number, signal?: NodeJS.Signals) => {
       kills.push({ pid, signal });
+      // The fake ignores SIGTERM and dies on SIGKILL, so the runner stops
+      // tracking it and no real kill(-424242) can fire at worker exit.
+      if (signal === "SIGKILL") queueMicrotask(() => live?.emit("exit", null, signal));
       return true;
     }) as typeof process.kill);
     const scheduled: number[] = [];
@@ -535,7 +539,10 @@ describe("cli backend grok oracle", () => {
         cb();
         return () => undefined;
       },
-      spawnImpl: () => fakeChild(),
+      spawnImpl: () => {
+        live = fakeChild();
+        return live;
+      },
     });
     let caught: unknown;
     try {
