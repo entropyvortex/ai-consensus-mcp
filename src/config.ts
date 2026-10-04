@@ -37,7 +37,18 @@ const CliProviderConfigSchema = z
   })
   .strict();
 
-const ProviderConfigSchema = z.union([CliProviderConfigSchema, HttpProviderConfigSchema]);
+// The arm is chosen by `transport` ("cli" → CLI arm, omitted or "http" → HTTP
+// arm), so a broken block reports only the issues of the arm it targets.
+const ProviderConfigSchema = z.discriminatedUnion(
+  "transport",
+  [CliProviderConfigSchema, HttpProviderConfigSchema],
+  {
+    errorMap: (issue, ctx) =>
+      issue.code === "invalid_union_discriminator"
+        ? { message: 'transport must be "cli" or "http" (omit it for HTTP)' }
+        : { message: ctx.defaultError },
+  },
+);
 
 // Participant config (provider-backed only).
 // Existing configs that omit `kind` resolve to "provider" for backwards
@@ -436,20 +447,18 @@ export function formatZodError(err: z.ZodError): string {
     .join("\n");
 }
 
-function flattenZodIssues(
-  issues: z.ZodIssue[],
-  prefix: (string | number)[] = [],
-): { path: (string | number)[]; message: string }[] {
+// Nested union issues already carry their full path from the root, so they
+// are emitted as-is rather than prefixed with the union's own path.
+function flattenZodIssues(issues: z.ZodIssue[]): { path: (string | number)[]; message: string }[] {
   const out: { path: (string | number)[]; message: string }[] = [];
   for (const issue of issues) {
-    const path = [...prefix, ...issue.path];
     if (issue.code === "invalid_union") {
       for (const nested of issue.unionErrors) {
-        out.push(...flattenZodIssues(nested.issues, path));
+        out.push(...flattenZodIssues(nested.issues));
       }
       continue;
     }
-    out.push({ path, message: issue.message });
+    out.push({ path: issue.path, message: issue.message });
   }
   return out;
 }

@@ -1,0 +1,70 @@
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { formatZodError, loadConfigFromJson } from "../config.js";
+
+// Contract: a provider block is validated against exactly one transport arm,
+// chosen by `transport` ("cli" → CLI arm, omitted/"http" → HTTP arm), and each
+// issue prints once with its path from the config root.
+
+function panel(providers: Record<string, unknown>): unknown {
+  const ids = Object.keys(providers);
+  return {
+    providers,
+    participants: [
+      { id: "a", provider: ids[0], modelId: "m", personaId: "pessimist" },
+      { id: "b", provider: ids[ids.length - 1], modelId: "m", personaId: "domain-expert" },
+    ],
+  };
+}
+
+/** Bullet lines printed under "failed validation:" for a raw config. */
+function validationLines(raw: unknown): string[] {
+  let message: string | undefined;
+  try {
+    loadConfigFromJson(JSON.stringify(raw), "test");
+  } catch (err) {
+    message = (err as Error).message;
+  }
+  if (message === undefined) throw new Error("expected validation to fail");
+  const [head, ...lines] = message.split("\n");
+  expect(head).toBe("ai-consensus-mcp: config at test failed validation:");
+  return lines;
+}
+
+describe("provider validation messages", () => {
+  it("prints main's single line for an HTTP provider missing apiKeyEnv", () => {
+    expect(validationLines(panel({ openai: { baseUrl: "https://api.openai.com/v1" } }))).toEqual([
+      "  • providers.openai.apiKeyEnv: Required",
+    ]);
+  });
+
+  it("prints only the CLI arm's issue for a bad driver", () => {
+    expect(validationLines(panel({ g: { transport: "cli", driver: "gemini" } }))).toEqual([
+      "  • providers.g.driver: Invalid enum value. Expected 'grok' | 'claude' | 'codex', received 'gemini'",
+    ]);
+  });
+
+  it("prints only the CLI arm's unknown-key issue for baseUrl beside driver", () => {
+    expect(
+      validationLines(
+        panel({ g: { transport: "cli", driver: "grok", baseUrl: "https://api.x.ai/v1" } }),
+      ),
+    ).toEqual(["  • providers.g: Unrecognized key(s) in object: 'baseUrl'"]);
+  });
+
+  it("names the accepted transports for an unknown transport", () => {
+    expect(validationLines(panel({ p: { transport: "stdio" } }))).toEqual([
+      '  • providers.p.transport: transport must be "cli" or "http" (omit it for HTTP)',
+    ]);
+  });
+
+  it("formatZodError flattens a union without repeating the path", () => {
+    const schema = z.object({ a: z.object({ b: z.union([z.string(), z.number()]) }) });
+    const result = schema.safeParse({ a: { b: true } });
+    if (result.success) throw new Error("expected failure");
+    expect(formatZodError(result.error).split("\n")).toEqual([
+      "  • a.b: Expected string, received boolean",
+      "  • a.b: Expected number, received boolean",
+    ]);
+  });
+});
