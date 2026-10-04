@@ -36,38 +36,41 @@ const stderrChunks = [];
 child.stderr.on("data", (chunk) => {
   const text = chunk.toString();
   stderrChunks.push(text);
-  const match = text.match(/at (http:\/\/127\.0\.0\.1:\d+\/[^\s]+)/);
+  const match = text.match(/at (http:\/\/127\.0\.0\.1:\d+\/[^\s,]+)/);
   if (match) readyUrl = match[1];
 });
 
-await new Promise((resolve, reject) => {
-  const t = setTimeout(() => reject(new Error("timeout waiting for http ready")), 10_000);
-  const check = setInterval(() => {
-    if (readyUrl) {
-      clearTimeout(t);
-      clearInterval(check);
-      resolve();
-    }
-  }, 50);
-});
+try {
+  await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout waiting for http ready")), 10_000);
+    const check = setInterval(() => {
+      if (readyUrl) {
+        clearTimeout(t);
+        clearInterval(check);
+        resolve();
+      }
+    }, 50);
+  });
 
-const client = new Client({ name: "evidence", version: "0.0.0" }, { capabilities: {} });
-const transport = new StreamableHTTPClientTransport(new URL(readyUrl));
-await client.connect(transport);
-const tools = await client.listTools();
-const names = tools.tools.map((t) => t.name);
+  const client = new Client({ name: "evidence", version: "0.0.0" }, { capabilities: {} });
+  const transport = new StreamableHTTPClientTransport(new URL(readyUrl));
+  await client.connect(transport);
+  const tools = await client.listTools();
+  const names = tools.tools.map((t) => t.name);
 
-const evidence = {
-  url: readyUrl,
-  toolCount: names.length,
-  names,
-  presetSample: names.filter((n) => n.startsWith("consensus_")).slice(0, 8),
-  stderr: stderrChunks.join(""),
-};
+  const evidence = {
+    url: readyUrl,
+    toolCount: names.length,
+    names,
+    presetSample: names.filter((n) => n.startsWith("consensus_")).slice(0, 8),
+    stderr: stderrChunks.join(""),
+  };
 
-writeFileSync(outPath, JSON.stringify(evidence, null, 2));
-console.log("captured", outPath, "—", names.length, "tools");
+  writeFileSync(outPath, JSON.stringify(evidence, null, 2));
+  console.log("captured", outPath, "—", names.length, "tools");
 
-await client.close();
-child.kill("SIGTERM");
-rmSync(tmp, { recursive: true, force: true });
+  await client.close();
+} finally {
+  child.kill("SIGTERM");
+  rmSync(tmp, { recursive: true, force: true });
+}
