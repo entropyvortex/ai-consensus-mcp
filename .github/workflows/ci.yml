@@ -3,8 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+  # All PRs, not only those targeting main: stacked PRs (base = another
+  # feature branch) must get CI too.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -27,6 +28,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+
+      # npm 10.9.x (bundled with Node 22) crashes in arborist's peer-set
+      # resolution ("Cannot read properties of null (reading 'edgesOut')") on
+      # this dependency tree. npm 11 resolves it. Pin the major so the toolchain
+      # does not drift with the Node image.
+      - run: npm install -g npm@11
 
       # No lockfile committed; ai-consensus-core must be published on npm for this
       # to resolve. Uses `npm install` (not `npm ci`) accordingly.
