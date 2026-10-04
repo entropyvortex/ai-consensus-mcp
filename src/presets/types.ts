@@ -218,5 +218,4 @@ export interface Preset {
  * tell the operator exactly what they need to add.
  */
 export type PresetRunnability =
-  | { runnable: true }
-  | { runnable: false; missingPersonaIds: readonly PersonaId[] };
+  { runnable: true } | { runnable: false; missingPersonaIds: readonly PersonaId[] };

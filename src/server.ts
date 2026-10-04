@@ -1123,6 +1123,5 @@ function ageLabel(days: number): string {
 }
 
 function escapeTablePipe(s: string): string {
-  // Backslashes first so pipe escapes are not double-processed.
   return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\n/g, " ");
 }

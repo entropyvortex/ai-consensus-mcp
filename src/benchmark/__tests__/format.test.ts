@@ -224,6 +224,13 @@ describe("formatReportMarkdown — section contract", () => {
     expect(md).toContain("+11");
   });
 
+  it("renders abort stop reason in the per-case table", () => {
+    const r = makeMinimalReport();
+    r.runs[0]!.consensus.result.stopReason = "aborted";
+    const md = formatReportMarkdown(r);
+    expect(md).toMatch(/\| abort \|/);
+  });
+
   it("handles failed runs by rendering a row with FAILED tag", () => {
     const r = makeMinimalReport();
     r.runs[0]!.failed = true;
@@ -232,12 +239,12 @@ describe("formatReportMarkdown — section contract", () => {
     expect(md).toMatch(/FAILED.*network down/);
   });
 
-  it("escapes backslashes and pipes in failed-run error messages so the table stays valid", () => {
+  it("escapes backslash, pipe, and newlines in failed-run error messages", () => {
     const r = makeMinimalReport();
     r.runs[0]!.failed = true;
-    r.runs[0]!.errorMessage = String.raw`C:\temp\err|broken`;
+    r.runs[0]!.errorMessage = "a\\b|c\nd";
     const md = formatReportMarkdown(r);
-    expect(md).toContain(String.raw`_FAILED: C:\\temp\\err\|broken_`);
+    expect(md).toContain("_FAILED: a\\\\b\\|c d_");
   });
 
   it("falls back gracefully when no judge confidence is available", () => {
