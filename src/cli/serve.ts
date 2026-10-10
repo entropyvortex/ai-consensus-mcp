@@ -12,7 +12,7 @@
 // clients (Grok custom connectors, etc.). See docs and examples/.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { loadConfig } from "../config.js";
+import { formatCliProviderStartupNote, loadConfig } from "../config.js";
 import { parseList } from "../http/host.js";
 import { startNodeHttpServer } from "../http/node-server.js";
 import { createMcpServer } from "../server.js";
@@ -28,6 +28,7 @@ export interface ServeArgs {
   allowedHosts: string[] | undefined;
   allowedOrigins: string[] | undefined;
   allowUnauthenticated: boolean;
+  allowCli: boolean;
   maxConcurrentToolCalls: number | undefined;
   maxPromptChars: number | undefined;
   maxOutputTokens: number | undefined;
@@ -58,6 +59,9 @@ Flags:
                          Permit a non-loopback --host without
                          CONSENSUS_HTTP_API_KEY. Without this flag the server
                          refuses to start in that configuration.
+      --allow-cli        Let HTTP mode run subscription CLI seats (transport
+                         "cli"). Off by default: remote callers would drive the
+                         grok/claude CLIs logged in on this machine.
       --allowed-hosts <list>
                          Comma-separated Host header values to accept (DNS-
                          rebinding defence). On a loopback bind, localhost,
@@ -163,6 +167,7 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     allowedHosts: undefined,
     allowedOrigins: undefined,
     allowUnauthenticated: false,
+    allowCli: false,
     maxConcurrentToolCalls: undefined,
     maxPromptChars: undefined,
     maxOutputTokens: undefined,
@@ -179,6 +184,10 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     }
     if (arg === "--allow-unauthenticated") {
       out.allowUnauthenticated = true;
+      continue;
+    }
+    if (arg === "--allow-cli") {
+      out.allowCli = true;
       continue;
     }
     const inline = arg.startsWith("--") && arg.includes("=");
@@ -219,12 +228,39 @@ export async function runServe(argv: readonly string[]): Promise<number> {
   }
 
   const config = await loadConfig(configPath);
+  process.stderr.write(formatCliProviderStartupNote(config));
 
   if (parsed.http) {
+    const refusal = httpCliRefusal(config, parsed);
+    if (refusal) {
+      process.stderr.write(refusal);
+      return 2;
+    }
     return runServeHttp(config, parsed);
   }
 
   return runServeStdio(config);
+}
+
+/**
+ * HTTP mode refuses CLI seats unless `--allow-cli`: every remote caller with
+ * the endpoint key would otherwise spend the subscriptions of the CLIs logged
+ * in on this machine. Returns the stderr message, or undefined when allowed.
+ */
+export function httpCliRefusal(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  args: Pick<ServeArgs, "allowCli">,
+): string | undefined {
+  if (args.allowCli) return undefined;
+  const ids = Object.values(config.providers)
+    .filter((provider) => provider.transport === "cli")
+    .map((provider) => `"${provider.id}"`);
+  if (ids.length === 0) return undefined;
+  return (
+    `${SERVER_NAME}: CLI provider(s) ${ids.join(", ")} are disabled in HTTP mode: remote callers ` +
+    "would run the subscription CLIs logged in on this machine. Pass --allow-cli to opt in, " +
+    "or serve this config over stdio.\n"
+  );
 }
 
 async function runServeStdio(config: Awaited<ReturnType<typeof loadConfig>>): Promise<number> {

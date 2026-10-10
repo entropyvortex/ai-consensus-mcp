@@ -8,11 +8,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelCallRequest } from "ai-consensus-core";
 import { createOpenAICompatibleCaller } from "../adapter.js";
-import type { ResolvedProvider } from "../config.js";
+import type { ResolvedHttpProvider } from "../config.js";
 
-function buildProvider(over: Partial<ResolvedProvider> = {}): ResolvedProvider {
+function buildProvider(over: Partial<ResolvedHttpProvider> = {}): ResolvedHttpProvider {
   return {
     id: "test",
+    transport: "http",
     baseUrl: "https://api.test.local",
     apiKey: "k_secret",
     extraHeaders: {},

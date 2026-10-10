@@ -18,7 +18,13 @@ function makeConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://api.test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants: [
       { id: "p1", modelId: "model-a", persona: PERSONAS[0]! },

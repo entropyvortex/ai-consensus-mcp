@@ -14,7 +14,7 @@ import { writeFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
 import type { ConsensusOptions, ModelCaller } from "ai-consensus-core";
 import { loadConfig, type LoadedConfig } from "../config.js";
-import { createOpenAICompatibleCaller } from "../adapter.js";
+import { createConsensusCaller } from "../caller.js";
 import { BUILT_IN_PRESETS } from "../presets/definitions/index.js";
 import { createRegistry, type PresetRegistry } from "../presets/registry.js";
 import { resolvePresetPanel, checkRunnability } from "../presets/resolve-panel.js";
@@ -374,7 +374,7 @@ export async function runBench(argv: readonly string[]): Promise<number> {
   if (evaluatorProviderId) {
     providerByParticipant["rubric-evaluator"] = evaluatorProviderId;
   }
-  const caller: ModelCaller = createOpenAICompatibleCaller({
+  const caller: ModelCaller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant,
   });

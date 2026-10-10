@@ -20,7 +20,7 @@ import {
   type Participant,
 } from "ai-consensus-core";
 import type { LoadedConfig, ResolvedDefaults } from "./config.js";
-import { createOpenAICompatibleCaller } from "./adapter.js";
+import { createConsensusCaller } from "./caller.js";
 import { wireEngineProgress } from "./progress.js";
 import { BUILT_IN_PRESETS } from "./presets/definitions/index.js";
 import { createRegistry, type PresetRegistry } from "./presets/registry.js";
@@ -318,7 +318,7 @@ async function runGenericConsensus(args: DispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createOpenAICompatibleCaller({
+  const caller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant,
   });
@@ -397,7 +397,7 @@ async function runPresetConsensus(args: PresetDispatchArgs) {
     signal: extra?.signal,
   });
 
-  const caller = createOpenAICompatibleCaller({
+  const caller = createConsensusCaller({
     providers: config.providers,
     providerByParticipant: resolved.providerByParticipant,
   });

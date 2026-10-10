@@ -13,6 +13,7 @@ function makeConfig(overrides: Partial<LoadedConfig> = {}): LoadedConfig {
     providers: {
       test: {
         id: "test",
+        transport: "http",
         baseUrl: "https://api.test.local",
         apiKey: "k",
         extraHeaders: {},
@@ -55,7 +56,13 @@ function makeUnrunnableForCodeReviewConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://api.test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants: [
       { id: "p_pessimist", modelId: "model-a", persona: pessimist },
@@ -96,7 +103,13 @@ function makeFullPanelConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://api.test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants,
     providerByParticipant,

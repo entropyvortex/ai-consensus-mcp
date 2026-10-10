@@ -20,7 +20,13 @@ function makeNarrowConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://api.test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants: [
       { id: "p_pessimist", modelId: "model-a", persona: pessimist },
@@ -59,7 +65,13 @@ function makeFullConfig(): LoadedConfig {
   return {
     sourcePath: "/fake",
     providers: {
-      test: { id: "test", baseUrl: "https://api.test.local", apiKey: "k", extraHeaders: {} },
+      test: {
+        id: "test",
+        transport: "http",
+        baseUrl: "https://api.test.local",
+        apiKey: "k",
+        extraHeaders: {},
+      },
     },
     participants,
     providerByParticipant: Object.fromEntries(participants.map((p) => [p.id, "test"])),

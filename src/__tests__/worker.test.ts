@@ -1,6 +1,6 @@
 // Contracts for the Cloudflare Workers example entry (examples/cloudflare/worker.ts).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { INITIALIZE, mcpRequest, mockProvider, toolCall } from "./http-fixtures.js";
 
 const CONFIG_JSON = JSON.stringify({
@@ -32,9 +32,9 @@ async function loadWorker(): Promise<WorkerModule["default"]> {
   return mod.default;
 }
 
-beforeEach(() => {
-  vi.stubEnv("WORKER_TEST_PROVIDER_KEY", "dummy");
-});
+// Provider keys are Worker secrets: they arrive on the env binding, which the
+// worker hands to the config loader instead of reading process.env.
+const PROVIDER_KEY = { WORKER_TEST_PROVIDER_KEY: "dummy" };
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -76,9 +76,28 @@ describe("worker error logging (CodeQL clear-text logging fix)", () => {
 });
 
 describe("worker request handling", () => {
-  it("serves MCP with the endpoint key and refuses without it", async () => {
+  it("reads provider keys from the env binding, not process.env", async () => {
+    // Contract: a key present only in process.env is not used, so the worker
+    // never depends on nodejs_compat mirroring bindings into process.env.
+    vi.stubEnv("WORKER_TEST_PROVIDER_KEY", "from-process-env");
     const worker = await loadWorker();
     const env = { CONSENSUS_CONFIG_JSON: CONFIG_JSON, CONSENSUS_HTTP_API_KEY: KEY };
+    const res = await worker.fetch(mcpRequest(INITIALIZE, { headers: AUTH }), env);
+    expect(res.status).toBe(500);
+    const ok = await worker.fetch(mcpRequest(INITIALIZE, { headers: AUTH }), {
+      ...env,
+      ...PROVIDER_KEY,
+    });
+    expect(ok.status).toBe(200);
+  });
+
+  it("serves MCP with the endpoint key and refuses without it", async () => {
+    const worker = await loadWorker();
+    const env = {
+      CONSENSUS_CONFIG_JSON: CONFIG_JSON,
+      ...PROVIDER_KEY,
+      CONSENSUS_HTTP_API_KEY: KEY,
+    };
     expect((await worker.fetch(mcpRequest(INITIALIZE), env)).status).toBe(401);
     const ok = await worker.fetch(mcpRequest(INITIALIZE, { headers: AUTH }), env);
     expect(ok.status).toBe(200);
@@ -92,6 +111,7 @@ describe("worker request handling", () => {
     const worker = await loadWorker();
     const env = {
       CONSENSUS_CONFIG_JSON: CONFIG_JSON,
+      ...PROVIDER_KEY,
       CONSENSUS_HTTP_API_KEY: KEY,
       CONSENSUS_HTTP_MAX_CONCURRENT_TOOL_CALLS: "1",
     };
@@ -113,6 +133,7 @@ describe("worker request handling", () => {
     const worker = await loadWorker();
     const env = {
       CONSENSUS_CONFIG_JSON: CONFIG_JSON,
+      ...PROVIDER_KEY,
       CONSENSUS_HTTP_API_KEY: KEY,
       CONSENSUS_HTTP_ALLOWED_ORIGINS: "https://app.example",
       CONSENSUS_HTTP_ALLOWED_HOSTS: "mcp.example.com",
@@ -135,6 +156,7 @@ describe("worker request handling", () => {
     const worker = await loadWorker();
     const res = await worker.fetch(mcpRequest(INITIALIZE, { headers: AUTH }), {
       CONSENSUS_CONFIG_JSON: CONFIG_JSON,
+      ...PROVIDER_KEY,
       CONSENSUS_HTTP_API_KEY: KEY,
       CONSENSUS_HTTP_MAX_PROMPT_CHARS: "lots",
     });
