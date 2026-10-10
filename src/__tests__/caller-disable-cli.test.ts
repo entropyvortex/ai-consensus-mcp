@@ -48,7 +48,14 @@ describe("CONSENSUS_DISABLE_CLI", () => {
   it.each([undefined, "", "0", "false", "off", "no", "2"])(
     "leaves CLI seats enabled for %j",
     async (value) => {
-      await expect(callWith(value)).rejects.toThrow('cli driver "grok" is not registered');
+      // The seat gets past the switch and fails later (no gate in this test);
+      // only the switch's own message would mean it was treated as disabled.
+      const err = await callWith(value).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).not.toContain("CONSENSUS_DISABLE_CLI");
     },
   );
 });

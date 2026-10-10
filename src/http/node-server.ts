@@ -9,6 +9,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import type { McpServerDeps } from "../caller.js";
 import type { LoadedConfig } from "../config.js";
 import { SERVER_NAME } from "../version.js";
 import { HTTP_API_KEY_ENV, resolveHttpAuthConfig, type HttpAuthConfig } from "./auth.js";
@@ -43,6 +44,8 @@ export interface NodeHttpServerOptions {
   maxPromptChars?: number;
   /** See HttpHandlerOptions.maxOutputTokens (default 8192). */
   maxOutputTokens?: number;
+  /** See HttpHandlerOptions.mcpServerDeps: the process CLI gate and readiness cache. */
+  mcpServerDeps?: McpServerDeps;
 }
 
 export interface NodeHttpServerHandle {
@@ -86,6 +89,7 @@ export async function startNodeHttpServer(
       : {}),
     ...(options.maxPromptChars !== undefined ? { maxPromptChars: options.maxPromptChars } : {}),
     ...(options.maxOutputTokens !== undefined ? { maxOutputTokens: options.maxOutputTokens } : {}),
+    ...(options.mcpServerDeps ? { mcpServerDeps: options.mcpServerDeps } : {}),
   });
 
   const server = createServer((req, res) => {

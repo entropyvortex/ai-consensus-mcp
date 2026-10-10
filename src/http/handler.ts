@@ -11,6 +11,7 @@
 
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { LoadedConfig } from "../config.js";
+import type { McpServerDeps } from "../caller.js";
 import { createMcpServer } from "../server.js";
 import { SERVER_NAME } from "../version.js";
 import {
@@ -65,6 +66,12 @@ export interface HttpHandlerOptions {
   maxPromptChars?: number;
   /** Highest `maxOutputTokens` argument a caller may request (default 8192). */
   maxOutputTokens?: number;
+  /**
+   * Process-wide runtime handed to every per-request MCP server: the CLI
+   * in-flight gate and readiness cache. Node `serve --http` passes the same
+   * object the process owns; omitted on Workers, where CLI seats are refused.
+   */
+  mcpServerDeps?: McpServerDeps;
 }
 
 /** Liveness only: no auth posture, panel shape, or version for scanners. */
@@ -183,7 +190,7 @@ export function createHttpHandler(
       }
     }
 
-    return handleStatelessMcpRequest(config, request, parsed, release);
+    return handleStatelessMcpRequest(config, request, parsed, release, options.mcpServerDeps);
   };
 }
 
@@ -197,6 +204,7 @@ async function handleStatelessMcpRequest(
   request: Request,
   parsedBody: unknown,
   onTeardown: (() => void) | undefined,
+  mcpServerDeps: McpServerDeps | undefined,
 ): Promise<Response> {
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -206,7 +214,7 @@ async function handleStatelessMcpRequest(
     keepAliveMs: SSE_KEEP_ALIVE_MS,
   });
 
-  const server = createMcpServer(config);
+  const server = createMcpServer(config, mcpServerDeps);
 
   transport.onerror = (err: Error) => {
     logHttpError(`transport: ${err.message}`);
