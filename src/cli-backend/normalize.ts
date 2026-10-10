@@ -161,7 +161,14 @@ function readUsage(payload: unknown): TokenUsage | undefined {
   for (const nest of nests) {
     const rec = asRecord(nest);
     if (!rec) continue;
-    const input = firstNumber(rec, ["input_tokens", "inputTokens", "prompt_tokens"]);
+    const uncached = firstNumber(rec, ["input_tokens", "inputTokens", "prompt_tokens"]);
+    // Anthropic (claude) input_tokens excludes prompt-cache reads and writes.
+    const input =
+      uncached === undefined
+        ? undefined
+        : uncached +
+          (firstNumber(rec, ["cache_creation_input_tokens"]) ?? 0) +
+          (firstNumber(rec, ["cache_read_input_tokens"]) ?? 0);
     const output = firstNumber(rec, ["output_tokens", "outputTokens", "completion_tokens"]);
     if (input === undefined || output === undefined) continue;
     const total = firstNumber(rec, ["total_tokens", "totalTokens"]) ?? input + output;

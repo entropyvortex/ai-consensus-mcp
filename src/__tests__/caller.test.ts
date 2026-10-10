@@ -70,7 +70,7 @@ describe("createConsensusCaller", () => {
   it("throws a seat error when the CLI driver is not registered", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(sse("ok"));
     const caller = createConsensusCaller({
-      providers: { openai: httpProvider(), "grok-sub": cliProvider("claude") },
+      providers: { openai: httpProvider(), "grok-sub": cliProvider("codex") },
       providerByParticipant: { httpSeat: "openai", cliSeat: "grok-sub" },
     });
     let caught: unknown;
@@ -81,7 +81,7 @@ describe("createConsensusCaller", () => {
     }
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).name).not.toBe("AbortError");
-    expect((caught as Error).message).toBe('cli driver "claude" is not registered');
+    expect((caught as Error).message).toBe('cli driver "codex" is not registered');
     const res = await caller(request("httpSeat"));
     expect(res.content).toBe("ok");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
