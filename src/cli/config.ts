@@ -23,11 +23,11 @@ import { resolve as resolvePath } from "node:path";
 import { checkbox, confirm, input, number, select, Separator } from "@inquirer/prompts";
 import {
   type RawConfig,
+  type RawDefaults,
   type RawJudgeConfig,
   type RawParticipantConfig,
   type RawProviderConfig,
   RawConfigSchema,
-  configHasCliProvider,
   formatZodError,
   readRawConfig,
   writeRawConfig,
@@ -55,7 +55,11 @@ Flags:
   -h, --help             Show this help.
 
 The editor walks you through every section — providers, participants,
-judge, defaults — with inline help and validation. The whole config is
+judge, defaults — with inline help and validation. Providers are HTTP
+by default. A CLI subscription seat (grok or claude) is a separate form
+and is never rewritten into baseUrl + apiKeyEnv. Codex is not offered:
+it is not yet implemented, and an existing codex block is left unchanged
+by "Edit". The whole config is
 checked against the Zod schema before saving; you can quit without
 saving at any time.
 `;
@@ -188,14 +192,6 @@ export async function runConfig(argv: readonly string[]): Promise<number> {
   if (existsSync(path)) {
     try {
       config = await readRawConfig(path);
-      if (configHasCliProvider(config)) {
-        process.stderr.write(
-          `${SERVER_NAME}: this config contains a transport "cli" provider. ` +
-            `The HTTP form would rewrite it into baseUrl + apiKeyEnv and drop the driver. ` +
-            `Edit CLI providers by hand. No changes were written.\n`,
-        );
-        return 2;
-      }
       process.stderr.write(`Loaded config from ${path}\n`);
     } catch (err) {
       process.stderr.write(
@@ -334,9 +330,12 @@ function configSummary(c: RawConfig): string {
   const providerCount = Object.keys(c.providers).length;
   const participantCount = c.participants.length;
   const judgeBit = c.judge ? `, judge=${c.judge.modelId}` : ", no judge";
+  const providerBits = Object.entries(c.providers).map(([id, provider]) =>
+    provider.transport === "cli" ? `${id} (cli:${provider.driver})` : id,
+  );
   return (
     `Current: ${providerCount} provider(s), ${participantCount} participant(s)${judgeBit}\n` +
-    `         providers: ${Object.keys(c.providers).join(", ") || "(none)"}\n` +
+    `         providers: ${providerBits.join(", ") || "(none)"}\n` +
     `         participants: ${c.participants.map((p) => p.id).join(", ") || "(none)"}`
   );
 }
@@ -364,7 +363,18 @@ async function editProviders(config: RawConfig): Promise<RawConfig | undefined> 
     }
 
     if (action === "__add__") {
-      const created = await editProviderForm(next, undefined);
+      const transport = await select<"http" | "cli">({
+        message: "Provider transport",
+        choices: [
+          { name: "HTTP (OpenAI-compatible API key) — default", value: "http" },
+          { name: "CLI subscription (grok or claude, no API key)", value: "cli" },
+        ],
+        default: "http",
+      });
+      const created =
+        transport === "cli"
+          ? await editCliProviderForm(next, undefined)
+          : await editProviderForm(next, undefined);
       if (created) {
         next.providers[created.id] = created.cfg;
         touched = true;
@@ -383,7 +393,12 @@ async function editProviders(config: RawConfig): Promise<RawConfig | undefined> 
     });
 
     if (sub === "edit") {
-      const updated = await editProviderForm(next, action);
+      // Route by transport. editProviderForm is never called with a CLI id,
+      // so a save cannot rewrite transport cli into baseUrl + apiKeyEnv.
+      const updated =
+        next.providers[action]?.transport === "cli"
+          ? await editCliProviderForm(next, action)
+          : await editProviderForm(next, action);
       if (updated) {
         if (updated.id !== action) delete next.providers[action];
         next.providers[updated.id] = updated.cfg;
@@ -406,11 +421,16 @@ async function editProviderForm(
   config: RawConfig,
   existingId: string | undefined,
 ): Promise<{ id: string; cfg: RawProviderConfig } | undefined> {
+  // The HTTP form never loads a transport cli provider. Callers route CLI
+  // ids to editCliProviderForm. A throw here is a programming error: falling
+  // through would replace the subscription seat with baseUrl + apiKeyEnv.
   const existingRaw = existingId ? config.providers[existingId] : undefined;
-  // The HTTP form never loads a CLI provider. The wizard exits before the
-  // edit loop when any CLI provider is present; this narrow is defense in
-  // depth so a CLI block cannot be rewritten into baseUrl + apiKeyEnv.
-  const existing = existingRaw && existingRaw.transport !== "cli" ? existingRaw : undefined;
+  if (existingRaw?.transport === "cli") {
+    throw new Error(
+      `${SERVER_NAME}: editProviderForm cannot load transport cli provider "${existingId ?? ""}".`,
+    );
+  }
+  const existing = existingRaw;
 
   // When adding (no existingId), offer one-keystroke presets for the
   // best-known OpenAI-compatible providers. The picker just pre-fills
@@ -484,6 +504,148 @@ async function editProviderForm(
     ...(extraHeaders && Object.keys(extraHeaders).length > 0 ? { extraHeaders } : {}),
   };
 
+  return { id: id.trim(), cfg };
+}
+
+const CLI_WIZARD_DRIVERS = ["grok", "claude"] as const;
+type CliWizardDriver = (typeof CLI_WIZARD_DRIVERS)[number];
+type CliRawProvider = Extract<RawProviderConfig, { transport: "cli" }>;
+
+function isCliWizardDriver(driver: string): driver is CliWizardDriver {
+  return driver === "grok" || driver === "claude";
+}
+
+/** Every driver the schema knows, offered or not. */
+const CLI_DRIVER_BINARIES = ["grok", "claude", "codex"] as const;
+
+/**
+ * True when `bin`'s final path segment is a known driver binary other than
+ * `driver`. A custom name such as `/opt/tools/mycli` returns false.
+ */
+function binNamesOtherDriver(bin: string, driver: CliWizardDriver): boolean {
+  const last = (bin.split(/[\\/]/).pop() ?? bin).replace(/\.(exe|cmd)$/i, "");
+  return (CLI_DRIVER_BINARIES as readonly string[]).includes(last) && last !== driver;
+}
+
+function asCliProvider(cfg: RawProviderConfig | undefined): CliRawProvider | undefined {
+  if (cfg?.transport === "cli") return cfg;
+  return undefined;
+}
+
+/**
+ * CLI subscription form. Fields are driver, bin, timeoutMs, and (grok only)
+ * authPath.
+ * There is no apiKeyEnv and no baseUrl. Codex is not a choice: the driver is
+ * not yet implemented, so this form must not present it as a working seat,
+ * and an existing codex block is returned untouched (undefined).
+ */
+async function editCliProviderForm(
+  config: RawConfig,
+  existingId: string | undefined,
+): Promise<{ id: string; cfg: RawProviderConfig } | undefined> {
+  if (existingId !== undefined && config.providers[existingId]?.transport !== "cli") {
+    throw new Error(
+      `${SERVER_NAME}: editCliProviderForm cannot load HTTP provider "${existingId}".`,
+    );
+  }
+  const existing = asCliProvider(existingId ? config.providers[existingId] : undefined);
+  if (existing && !isCliWizardDriver(existing.driver)) {
+    // The driver select has no entry for this driver, so any answer would
+    // rewrite the seat. Leave the block exactly as it is on disk.
+    process.stderr.write(
+      `${SERVER_NAME}: provider "${existingId ?? ""}" uses driver "${existing.driver}", which the wizard does not offer ` +
+        `(not yet implemented). The block was left unchanged; edit it by hand or remove it.\n`,
+    );
+    return undefined;
+  }
+
+  const id = await input({
+    message: "Provider id (key under `providers`, e.g. `grok-sub`, `claude-sub`)",
+    default: existingId ?? "",
+    validate: (v) => {
+      const trimmed = v.trim();
+      if (!trimmed) return "Required";
+      if (trimmed !== existingId && config.providers[trimmed]) {
+        return `Provider "${trimmed}" already exists`;
+      }
+      return true;
+    },
+  });
+
+  const driver = await select<CliWizardDriver>({
+    message: "CLI driver (subscription seat, no API key). Codex is not yet implemented.",
+    choices: CLI_WIZARD_DRIVERS.map((name) => ({ name, value: name })),
+    default: existing && isCliWizardDriver(existing.driver) ? existing.driver : "grok",
+  });
+
+  // A bin that names some other driver's binary (for example `grok` after
+  // switching to claude) is stale, so it is not offered as the default.
+  const keptBin =
+    existing?.bin !== undefined && !binNamesOtherDriver(existing.bin, driver)
+      ? existing.bin
+      : undefined;
+  const wantsBin = await confirm({
+    message: `Override the binary? (default: \`${driver}\` on PATH)`,
+    default: keptBin !== undefined,
+  });
+  let bin: string | undefined;
+  if (wantsBin) {
+    const value = await input({
+      message: "Binary name or path",
+      default: keptBin ?? driver,
+      validate: (v) => (v.trim() ? true : "Required"),
+    });
+    bin = value.trim();
+  }
+
+  const wantsTimeout = await confirm({
+    message: "Override timeoutMs? (default 120000, allowed 1000–600000)",
+    default: existing?.timeoutMs !== undefined,
+  });
+  let timeoutMs: number | undefined;
+  if (wantsTimeout) {
+    const value = await number({
+      message: "timeoutMs",
+      default: existing?.timeoutMs ?? 120_000,
+      min: 1_000,
+      max: 600_000,
+      step: 1,
+      required: true,
+    });
+    if (value !== undefined && value !== null) timeoutMs = value;
+  }
+
+  // authPath is read only by the grok driver, and only as the file whose
+  // presence counts as "signed in". It does not change which login the CLI
+  // uses. Other drivers ignore it, so the prompt is grok-only; an existing
+  // value is kept untouched when the driver does not change.
+  let authPath: string | undefined;
+  if (driver === "grok") {
+    const wantsAuth = await confirm({
+      message:
+        "Set authPath? (path checked for sign-in readiness; default ~/.grok/auth.json. " +
+        "It does not change which login grok uses.)",
+      default: existing?.driver === "grok" && existing.authPath !== undefined,
+    });
+    if (wantsAuth) {
+      const value = await input({
+        message: "authPath",
+        default: existing?.driver === "grok" ? (existing.authPath ?? "") : "",
+      });
+      const trimmed = value.trim();
+      authPath = trimmed.length > 0 ? trimmed : undefined;
+    }
+  } else if (existing?.driver === driver) {
+    authPath = existing.authPath;
+  }
+
+  const cfg: RawProviderConfig = {
+    transport: "cli",
+    driver,
+    ...(bin !== undefined ? { bin } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(authPath !== undefined ? { authPath } : {}),
+  };
   return { id: id.trim(), cfg };
 }
 
@@ -816,6 +978,7 @@ async function editDefaults(config: RawConfig): Promise<RawConfig | undefined> {
     { key: "participantTemperature" as const, name: "participantTemperature (0–2)" },
     { key: "maxOutputTokens" as const, name: "maxOutputTokens (positive int)" },
     { key: "useJudge" as const, name: "useJudge (boolean)" },
+    { key: "cliMaxInFlight" as const, name: "cliMaxInFlight (1–4, CLI seats only)" },
   ];
 
   const setKeys = await checkbox<DefaultKey>({
@@ -827,7 +990,7 @@ async function editDefaults(config: RawConfig): Promise<RawConfig | undefined> {
     })),
   });
 
-  const drafted: Record<string, unknown> = {};
+  const drafted: RawDefaults = {};
 
   for (const key of setKeys) {
     if (
@@ -884,6 +1047,16 @@ async function editDefaults(config: RawConfig): Promise<RawConfig | undefined> {
         required: true,
       });
       if (v !== undefined && v !== null) drafted[key] = v;
+    } else if (key === "cliMaxInFlight") {
+      const v = await number({
+        message: "cliMaxInFlight (1–4)",
+        default: current.cliMaxInFlight ?? 2,
+        min: 1,
+        max: 4,
+        step: 1,
+        required: true,
+      });
+      if (v !== undefined && v !== null) drafted[key] = v;
     }
   }
 
@@ -905,4 +1078,5 @@ type DefaultKey =
   | "randomizeOrder"
   | "participantTemperature"
   | "maxOutputTokens"
-  | "useJudge";
+  | "useJudge"
+  | "cliMaxInFlight";

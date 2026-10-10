@@ -1,0 +1,46 @@
+{
+  "providers": {
+    "grok-sub": {
+      "transport": "cli",
+      "driver": "grok",
+      "timeoutMs": 120000
+    },
+    "claude-sub": {
+      "transport": "cli",
+      "driver": "claude"
+    },
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    }
+  },
+  "participants": [
+    {
+      "id": "grok",
+      "provider": "grok-sub",
+      "modelId": "grok-4",
+      "personaId": "devils-advocate"
+    },
+    {
+      "id": "claude",
+      "provider": "claude-sub",
+      "modelId": "opus",
+      "personaId": "domain-expert"
+    },
+    {
+      "id": "chatgpt",
+      "provider": "openai",
+      "modelId": "gpt-4o",
+      "personaId": "first-principles"
+    }
+  ],
+  "judge": {
+    "provider": "claude-sub",
+    "modelId": "opus"
+  },
+  "defaults": {
+    "maxRounds": 2,
+    "earlyStop": true,
+    "cliMaxInFlight": 2
+  }
+}

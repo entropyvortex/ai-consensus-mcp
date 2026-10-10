@@ -274,14 +274,6 @@ export interface ResolveConfigOptions {
 }
 
 /**
- * True when any raw provider uses the CLI transport. The wizard uses this
- * to refuse the HTTP edit form before it can rewrite a subscription seat.
- */
-export function configHasCliProvider(raw: RawConfig): boolean {
-  return Object.values(raw.providers).some((provider) => provider.transport === "cli");
-}
-
-/**
  * Stderr note for `serve` after a CLI provider resolves. Does not spawn.
  * Empty string when every provider is HTTP.
  */
