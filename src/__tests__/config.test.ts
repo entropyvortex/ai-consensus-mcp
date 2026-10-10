@@ -329,13 +329,13 @@ describe("CLI provider resolve", () => {
   });
 
   it("defaults omitted CLI bin, timeout, and authPath", async () => {
-    const path = await writeConfig(cliPanel({ transport: "cli", driver: "codex" }));
+    const path = await writeConfig(cliPanel({ transport: "cli", driver: "claude" }));
     const cfg = await loadConfig(path);
     expect(cfg.providers["grok-sub"]).toEqual({
       id: "grok-sub",
       transport: "cli",
-      driver: "codex",
-      bin: "codex",
+      driver: "claude",
+      bin: "claude",
       timeoutMs: 120_000,
       authPath: undefined,
     });
@@ -365,6 +365,11 @@ describe("CLI provider resolve", () => {
   it("rejects CLI providers when allowCli is false and still loads HTTP-only configs", async () => {
     const cliPath = await writeConfig(cliPanel({ transport: "cli", driver: "claude" }));
     await expect(loadConfig(cliPath, { allowCli: false })).rejects.toThrow(WORKERS_CLI_ERROR);
+    // Contract: the remedy names only CLIs that have a driver; codex has none.
+    await expect(loadConfig(cliPath, { allowCli: false })).rejects.toThrow(
+      /machine with the grok or claude CLI installed/,
+    );
+    await expect(loadConfig(cliPath, { allowCli: false })).rejects.not.toThrow(/codex/);
 
     const httpPath = await writeConfig(VALID_CONFIG, "http.json");
     const http = await loadConfig(httpPath, { allowCli: false });

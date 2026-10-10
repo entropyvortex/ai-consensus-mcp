@@ -1,5 +1,5 @@
-// CLI driver registry. Grok and Claude are registered. Codex stays
-// unregistered so a seat for that driver throws rather than spawning.
+// CLI driver registry. Grok and Claude are registered. Codex has no spawn
+// path: resolve refuses a seat that uses a codex provider (not implemented).
 
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider, ResolvedProvider } from "../config.js";
@@ -176,5 +176,6 @@ export {
   CLAUDE_READINESS_TIMEOUT_MS,
   CLAUDE_SYSTEM_PROMPT,
 } from "./drivers/claude.js";
+export { CODEX_REQUIRED_GATE_FLAGS, codexDriverRefusalMessage } from "./drivers/codex.js";
 export { ORACLE_JSON_SCHEMA_TEXT } from "./normalize.js";
 export type { CliRuntimeDeps, ReadinessState, SpawnLike } from "./runner.js";

@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
 import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
+import { codexDriverRefusalMessage } from "./cli-backend/drivers/codex.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -415,6 +416,15 @@ export function resolveConfigFromRaw(
     providerByParticipant["judge"] = raw.judge.provider;
   }
 
+  // Codex has no driver yet: refuse a seat that would run on it. An unused
+  // codex provider entry loads and never spawns.
+  for (const [seatId, providerId] of Object.entries(providerByParticipant)) {
+    const provider = providers[providerId];
+    if (provider?.transport === "cli" && provider.driver === "codex") {
+      throw new Error(codexDriverRefusalMessage(providerId, seatId));
+    }
+  }
+
   const anyCli = Object.values(providers).some((provider) => provider.transport === "cli");
   const defaults: ResolvedDefaults = {
     maxRounds: raw.defaults?.maxRounds,
@@ -460,7 +470,7 @@ function cloudflareWorkersUserAgent(): boolean {
 function workersCliError(id: string): string {
   return (
     `ai-consensus-mcp: provider "${id}" uses transport "cli", which cannot spawn a local process on Cloudflare Workers. ` +
-    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok, claude, or codex CLI installed. " +
+    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok or claude CLI installed. " +
     "HTTP providers in this file were not loaded because the config is rejected as a whole."
   );
 }
