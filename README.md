@@ -1,7 +1,13 @@
 # ai-consensus-mcp
 
-[![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
+Catches the blind spots a single model leaves in code review, architecture and security calls, from inside your editor.
+
+[![CI](https://github.com/entropyvortex/ai-consensus-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/entropyvortex/ai-consensus-mcp/actions/workflows/ci.yml) [![npm](https://img.shields.io/npm/v/ai-consensus-mcp)](https://www.npmjs.com/package/ai-consensus-mcp)
 [![license](https://img.shields.io/npm/l/ai-consensus-mcp)](./LICENSE)
+
+Used in real Vortex Serviços and SabIA production work for code review, architecture decisions and incident postmortems.
+
+Tests and CI: typecheck, lint, format check, the Vitest suite with coverage and a stdio smoke test run on Node 20 and 22 for every pull request.
 
 > Grok-centered multi-model consensus — in Cursor, Claude Code, and Windsurf (stdio), or as a **Grok custom connector** (remote HTTP). One config file. 14 tools. Measurably better decisions on code review, architecture, security, and hard calls.
 
