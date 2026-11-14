@@ -99,10 +99,10 @@ const ProviderConfigSchema = z.discriminatedUnion(
   "transport",
   [CliProviderConfigSchema, HttpProviderConfigSchema],
   {
-    errorMap: (issue, ctx) =>
-      issue.code === "invalid_union_discriminator"
-        ? { message: 'transport must be "cli" or "http" (omit it for HTTP)' }
-        : { message: ctx.defaultError },
+    error: (issue) =>
+      issue.code === "invalid_union" && issue.errors.length === 0
+        ? 'transport must be "cli" or "http" (omit it for HTTP)'
+        : undefined,
   },
 );
 
@@ -521,18 +521,25 @@ export function formatZodError(err: z.ZodError): string {
     .join("\n");
 }
 
-// Nested union issues already carry their full path from the root, so they
-// are emitted as-is rather than prefixed with the union's own path.
-function flattenZodIssues(issues: z.ZodIssue[]): { path: (string | number)[]; message: string }[] {
+// In zod 4, nested union issues carry paths relative to the union, so the
+// union's own path is prepended when flattening.
+function flattenZodIssues(
+  issues: z.core.$ZodIssue[],
+  prefix: PropertyKey[] = [],
+): { path: (string | number)[]; message: string }[] {
   const out: { path: (string | number)[]; message: string }[] = [];
   for (const issue of issues) {
-    if (issue.code === "invalid_union") {
-      for (const nested of issue.unionErrors) {
-        out.push(...flattenZodIssues(nested.issues));
+    const path = [...prefix, ...issue.path];
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
+      for (const nested of issue.errors) {
+        out.push(...flattenZodIssues(nested, path));
       }
       continue;
     }
-    out.push({ path: issue.path, message: issue.message });
+    out.push({
+      path: path.map((k) => (typeof k === "symbol" ? String(k) : k)),
+      message: issue.message,
+    });
   }
   return out;
 }

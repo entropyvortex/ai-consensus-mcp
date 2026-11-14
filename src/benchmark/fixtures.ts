@@ -45,7 +45,7 @@ export async function loadBuiltInFixtures(): Promise<LoadedFixture[]> {
     }
     const validated = BenchCaseFileSchema.safeParse(parsed);
     if (!validated.success) {
-      const detail = validated.error.errors
+      const detail = validated.error.issues
         .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
         .join("\n");
       throw new Error(`bench: built-in fixture ${path} failed validation:\n${detail}`);

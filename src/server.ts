@@ -652,7 +652,7 @@ const PRESET_BASE_KEY_SET = new Set([
 // ── Result helpers ───────────────────────────────────────────
 
 function formatZodIssues(error: z.ZodError): string {
-  return `Invalid input:\n${error.errors
+  return `Invalid input:\n${error.issues
     .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
     .join("\n")}`;
 }
