@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Changed — zod 4
+
+- `zod` moved from `^3.24.1` to `^4.6.7`, which clears the high-severity zod advisory fixed in 4.6.6. Code adapted to the zod 4 API (`error.issues`, the discriminated-union `error` option, nested `invalid_union` issues).
+- Config and tool-input validation messages now use zod 4 wording, e.g. `Invalid input: expected string, received undefined` instead of `Required`.
+
 ### Added — stateless Streamable HTTP transport (remote MCP clients)
 
 - `ai-consensus-mcp serve --http` (`--host`, `--port`, `--path`) and `createHttpHandler()` / `loadConfigFromJson()` from `ai-consensus-mcp/http` for Web Standard runtimes. A Cloudflare Workers example lives in `examples/cloudflare/`.

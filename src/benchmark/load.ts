@@ -50,7 +50,7 @@ export async function loadCaseFile(path: string): Promise<LoadCaseFileResult> {
 
   const validated = BenchCaseFileSchema.safeParse(parsed);
   if (!validated.success) {
-    const detail = validated.error.errors
+    const detail = validated.error.issues
       .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
       .join("\n");
     throw new Error(`bench: case file at ${absolute} failed validation:\n${detail}`);
@@ -82,7 +82,7 @@ export function parseCaseFile(json: string, sourceLabel = "<inline>"): BenchCase
   }
   const validated = BenchCaseFileSchema.safeParse(parsed);
   if (!validated.success) {
-    const detail = validated.error.errors
+    const detail = validated.error.issues
       .map((e) => `  • ${e.path.join(".") || "<root>"}: ${e.message}`)
       .join("\n");
     throw new Error(`bench: ${sourceLabel}: failed validation:\n${detail}`);

@@ -36,13 +36,13 @@ function validationLines(raw: unknown): string[] {
 describe("provider validation messages", () => {
   it("prints main's single line for an HTTP provider missing apiKeyEnv", () => {
     expect(validationLines(panel({ openai: { baseUrl: "https://api.openai.com/v1" } }))).toEqual([
-      "  • providers.openai.apiKeyEnv: Required",
+      "  • providers.openai.apiKeyEnv: Invalid input: expected string, received undefined",
     ]);
   });
 
   it("prints only the CLI arm's issue for a bad driver", () => {
     expect(validationLines(panel({ g: { transport: "cli", driver: "gemini" } }))).toEqual([
-      "  • providers.g.driver: Invalid enum value. Expected 'grok' | 'claude' | 'codex', received 'gemini'",
+      '  • providers.g.driver: Invalid option: expected one of "grok"|"claude"|"codex"',
     ]);
   });
 
@@ -51,7 +51,7 @@ describe("provider validation messages", () => {
       validationLines(
         panel({ g: { transport: "cli", driver: "grok", baseUrl: "https://api.x.ai/v1" } }),
       ),
-    ).toEqual(["  • providers.g: Unrecognized key(s) in object: 'baseUrl'"]);
+    ).toEqual(['  • providers.g: Unrecognized key: "baseUrl"']);
   });
 
   it("names the accepted transports for an unknown transport", () => {
@@ -65,8 +65,8 @@ describe("provider validation messages", () => {
     const result = schema.safeParse({ a: { b: true } });
     if (result.success) throw new Error("expected failure");
     expect(formatZodError(result.error).split("\n")).toEqual([
-      "  • a.b: Expected string, received boolean",
-      "  • a.b: Expected number, received boolean",
+      "  • a.b: Invalid input: expected string, received boolean",
+      "  • a.b: Invalid input: expected number, received boolean",
     ]);
   });
 });
@@ -273,8 +273,8 @@ describe("defaults.cliMaxInFlight", () => {
   });
 
   it.each([
-    [0, "Number must be greater than or equal to 1"],
-    [5, "Number must be less than or equal to 4"],
+    [0, "Too small: expected number to be >=1"],
+    [5, "Too big: expected number to be <=4"],
   ])("rejects %i", (cap, message) => {
     expect(validationLines(withCap(cap))).toEqual([`  • defaults.cliMaxInFlight: ${message}`]);
   });
