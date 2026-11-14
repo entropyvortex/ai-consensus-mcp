@@ -9,6 +9,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 - `zod` moved from `^3.24.1` to `^4.6.7`, which clears the high-severity zod advisory fixed in 4.6.6. Code adapted to the zod 4 API (`error.issues`, the discriminated-union `error` option, nested `invalid_union` issues).
 - Config and tool-input validation messages now use zod 4 wording, e.g. `Invalid input: expected string, received undefined` instead of `Required`.
+- `ai-consensus-core` dependency moved to `^0.12.0` (zod 4), so a single zod major is installed.
 
 ### Added — stateless Streamable HTTP transport (remote MCP clients)
 
