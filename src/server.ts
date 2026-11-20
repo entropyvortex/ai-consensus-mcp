@@ -33,6 +33,18 @@ import { resolvePresetPanel, checkRunnability } from "./presets/resolve-panel.js
 import { formatPresetResult } from "./presets/format.js";
 import type { Preset } from "./presets/types.js";
 import { createMemoryStore, type MemoryStore } from "./memory/store.js";
+import {
+  COMPARE_ATTEMPTS_DESCRIPTION,
+  COMPARE_ATTEMPTS_INPUT_JSON_SCHEMA,
+  COMPARE_ATTEMPTS_TOOL,
+  CompareAttemptsInputSchema,
+  LIST_ATTEMPTS_DESCRIPTION,
+  LIST_ATTEMPTS_INPUT_JSON_SCHEMA,
+  LIST_ATTEMPTS_TOOL,
+  ListAttemptsInputSchema,
+  runCompareAttempts,
+  runListAttempts,
+} from "./compare/attempts.js";
 import { projectKeyForPath } from "./memory/project-key.js";
 import { join as joinPath } from "node:path";
 
@@ -180,6 +192,21 @@ export function createMcpServer(config: LoadedConfig, deps?: McpServerDeps): Ser
         inputSchema: buildPresetJsonSchema(preset),
       })),
       ...(memoryContext ? buildMemoryToolDescriptors(memoryContext) : []),
+      ...(deps?.repoTools
+        ? [
+            {
+              name: LIST_ATTEMPTS_TOOL,
+              description: LIST_ATTEMPTS_DESCRIPTION,
+              inputSchema: LIST_ATTEMPTS_INPUT_JSON_SCHEMA,
+              annotations: { readOnlyHint: true, openWorldHint: false },
+            },
+            {
+              name: COMPARE_ATTEMPTS_TOOL,
+              description: COMPARE_ATTEMPTS_DESCRIPTION,
+              inputSchema: COMPARE_ATTEMPTS_INPUT_JSON_SCHEMA,
+            },
+          ]
+        : []),
     ],
   }));
 
@@ -210,6 +237,23 @@ export function createMcpServer(config: LoadedConfig, deps?: McpServerDeps): Ser
         request,
         extra,
       });
+    }
+
+    if (deps?.repoTools) {
+      if (toolName === LIST_ATTEMPTS_TOOL) {
+        return runListAttemptsDispatch(request);
+      }
+      if (toolName === COMPARE_ATTEMPTS_TOOL) {
+        return runCompareAttemptsDispatch({
+          config,
+          deps,
+          server,
+          presets,
+          memoryContext,
+          request,
+          extra,
+        });
+      }
     }
 
     if (memoryContext) {
@@ -254,60 +298,15 @@ async function runGenericConsensus(args: DispatchArgs) {
   }
   const input = parsed.data;
 
-  // `panel` and `participantIds` are mutually exclusive — both targeting the
-  // composition of the panel from different angles. Pick one.
-  if (input.panel && input.participantIds && input.participantIds.length > 0) {
-    return toolError(
-      "`panel` and `participantIds` are mutually exclusive — a panel id selects the panel composition; participantIds picks raw participants.",
-    );
-  }
-
-  // When `panel` is set, dispatch through the same resolver presets use.
-  // The panel's persona panel, task suffixes, defaults, and judge prompt
-  // are applied automatically; the user's other engine-knob overrides still win.
-  const panelOverlay = input.panel ? args.presets.get(input.panel) : undefined;
-  if (input.panel && !panelOverlay) {
-    const available = args.presets
-      .list()
-      .map((p) => p.id)
-      .join(", ");
-    return toolError(`Unknown panel id "${input.panel}". Available: ${available}.`);
-  }
-
-  let selectedParticipants: Participant[];
-  let providerByParticipant: Record<string, string>;
-  let presetDefaultsForOptions: Preset["defaults"] | undefined;
-  let judgeSystemPromptForOptions: string | undefined;
-
-  if (panelOverlay) {
-    const runnability = checkRunnability(panelOverlay, config);
-    if (!runnability.runnable) {
-      return toolError(
-        `Panel "${panelOverlay.id}" cannot run with the current config: missing required personas ${runnability.missingPersonaIds
-          .map((p) => `"${p}"`)
-          .join(", ")}. Configured personas: ${config.participants
-          .map((p) => `"${p.persona.id}"`)
-          .join(", ")}.`,
-      );
-    }
-    const resolved = resolvePresetPanel(panelOverlay, config);
-    if (resolved instanceof Error) {
-      return toolError(resolved.message);
-    }
-    selectedParticipants = resolved.participants;
-    providerByParticipant = resolved.providerByParticipant;
-    presetDefaultsForOptions = panelOverlay.defaults;
-    judgeSystemPromptForOptions = panelOverlay.judgeSystemPrompt;
-  } else {
-    const generic = resolveGenericParticipants(config, input);
-    if (generic instanceof Error) {
-      return toolError(generic.message);
-    }
-    selectedParticipants = generic;
-    providerByParticipant = config.providerByParticipant;
-    presetDefaultsForOptions = undefined;
-    judgeSystemPromptForOptions = undefined;
-  }
+  const selection = selectPanel(args, input);
+  if ("error" in selection) return toolError(selection.error);
+  const {
+    panelOverlay,
+    participants: selectedParticipants,
+    providerByParticipant,
+    presetDefaults: presetDefaultsForOptions,
+    judgeSystemPrompt: judgeSystemPromptForOptions,
+  } = selection;
 
   const judgeEnabled = input.judge ?? config.defaults.useJudge;
   if (judgeEnabled && !config.judge) {
@@ -352,6 +351,147 @@ async function runGenericConsensus(args: DispatchArgs) {
     return toolError(`Consensus run failed: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     detachProgress();
+  }
+}
+
+interface PanelSelection {
+  panelOverlay: Preset | undefined;
+  participants: Participant[];
+  providerByParticipant: Record<string, string>;
+  presetDefaults: Preset["defaults"] | undefined;
+  judgeSystemPrompt: string | undefined;
+}
+
+/**
+ * Seats for a run from `panel` (an expert-panel id) or `participantIds`
+ * (raw configured participants), which are mutually exclusive. Shared by
+ * the generic `consensus` tool and consensus_compare_attempts.
+ */
+function selectPanel(
+  args: Pick<DispatchArgs, "config" | "presets">,
+  input: { panel?: string | undefined; participantIds?: string[] | undefined },
+): PanelSelection | { error: string } {
+  const { config } = args;
+  // `panel` and `participantIds` are mutually exclusive — both targeting the
+  // composition of the panel from different angles. Pick one.
+  if (input.panel && input.participantIds && input.participantIds.length > 0) {
+    return {
+      error:
+        "`panel` and `participantIds` are mutually exclusive — a panel id selects the panel composition; participantIds picks raw participants.",
+    };
+  }
+
+  // When `panel` is set, dispatch through the same resolver presets use.
+  // The panel's persona panel, task suffixes, defaults, and judge prompt
+  // are applied automatically; the user's other engine-knob overrides still win.
+  const panelOverlay = input.panel ? args.presets.get(input.panel) : undefined;
+  if (input.panel && !panelOverlay) {
+    const available = args.presets
+      .list()
+      .map((p) => p.id)
+      .join(", ");
+    return { error: `Unknown panel id "${input.panel}". Available: ${available}.` };
+  }
+
+  if (panelOverlay) {
+    const runnability = checkRunnability(panelOverlay, config);
+    if (!runnability.runnable) {
+      return {
+        error: `Panel "${panelOverlay.id}" cannot run with the current config: missing required personas ${runnability.missingPersonaIds
+          .map((p) => `"${p}"`)
+          .join(", ")}. Configured personas: ${config.participants
+          .map((p) => `"${p.persona.id}"`)
+          .join(", ")}.`,
+      };
+    }
+    const resolved = resolvePresetPanel(panelOverlay, config);
+    if (resolved instanceof Error) return { error: resolved.message };
+    return {
+      panelOverlay,
+      participants: resolved.participants,
+      providerByParticipant: resolved.providerByParticipant,
+      presetDefaults: panelOverlay.defaults,
+      judgeSystemPrompt: panelOverlay.judgeSystemPrompt,
+    };
+  }
+  const generic = resolveGenericParticipants(config, { participantIds: input.participantIds });
+  if (generic instanceof Error) return { error: generic.message };
+  return {
+    panelOverlay: undefined,
+    participants: generic,
+    providerByParticipant: config.providerByParticipant,
+    presetDefaults: undefined,
+    judgeSystemPrompt: undefined,
+  };
+}
+
+// ── Attempt comparison (stdio only) ──────────────────────────
+
+async function runListAttemptsDispatch(request: DispatchArgs["request"]) {
+  const parsed = ListAttemptsInputSchema.safeParse(request.params.arguments ?? {});
+  if (!parsed.success) return toolError(formatZodIssues(parsed.error));
+  try {
+    return await runListAttempts({ input: parsed.data });
+  } catch (err) {
+    return toolError(`List attempts failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function runCompareAttemptsDispatch(args: DispatchArgs) {
+  const { config, request, extra } = args;
+  const parsed = CompareAttemptsInputSchema.safeParse(request.params.arguments ?? {});
+  if (!parsed.success) return toolError(formatZodIssues(parsed.error));
+  const input = parsed.data;
+
+  const selection = selectPanel(args, input);
+  if ("error" in selection) return toolError(selection.error);
+
+  const judgeEnabled = input.judge ?? config.defaults.useJudge;
+  if (judgeEnabled && !config.judge) {
+    return toolError("Judge was requested but the server config does not declare a `judge` entry.");
+  }
+  const judge =
+    judgeEnabled && config.judge
+      ? {
+          modelId: config.judge.modelId,
+          ...(config.judge.temperature !== undefined
+            ? { temperature: config.judge.temperature }
+            : {}),
+          ...(config.judge.maxOutputTokens !== undefined
+            ? { maxOutputTokens: config.judge.maxOutputTokens }
+            : {}),
+          ...(selection.judgeSystemPrompt !== undefined
+            ? { systemPrompt: selection.judgeSystemPrompt }
+            : {}),
+        }
+      : undefined;
+
+  const progressToken = request.params._meta?.progressToken;
+  try {
+    return await runCompareAttempts({
+      input,
+      jurors: selection.participants,
+      providers: config.providers,
+      providerByParticipant: selection.providerByParticipant,
+      judge,
+      deps: args.deps,
+      allowTestCommand: args.deps?.repoTools?.allowTestCommand ?? false,
+      ...(extra?.signal ? { signal: extra.signal } : {}),
+      ...(progressToken !== undefined && extra?.sendNotification
+        ? {
+            progress: {
+              progressToken,
+              sendNotification: extra.sendNotification as Parameters<
+                typeof wireEngineProgress
+              >[0]["sendNotification"],
+            },
+          }
+        : {}),
+    });
+  } catch (err) {
+    return toolError(
+      `Compare attempts failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -584,7 +724,7 @@ function buildGenericToolDescription(config: LoadedConfig): string {
 
 function resolveGenericParticipants(
   config: LoadedConfig,
-  input: ConsensusInput,
+  input: Pick<ConsensusInput, "participantIds">,
 ): Participant[] | Error {
   if (!input.participantIds || input.participantIds.length === 0) {
     return config.participants;

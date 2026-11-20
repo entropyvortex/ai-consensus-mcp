@@ -7,7 +7,7 @@
 // NOT forwarded — they fire hundreds of times per round and would
 // flood the notification channel.
 
-import type { ConsensusEngine } from "ai-consensus-core";
+import type { AdjudicationEngine, ConsensusEngine } from "ai-consensus-core";
 
 /**
  * Shape of the `sendNotification` callback that the MCP SDK hands to
@@ -131,5 +131,86 @@ export function wireEngineProgress(opts: WireProgressOptions): () => void {
     engine.off("synthesisComplete", handlers.synthesisComplete);
     engine.off("finalResult", handlers.finalResult);
     engine.off("error", handlers.error);
+  };
+}
+
+export interface WireAdjudicationProgressOptions {
+  engine: AdjudicationEngine;
+  sendNotification: SendNotification;
+  progressToken: string | number;
+  jurorCount: number;
+  maxRounds: number;
+  judgeEnabled: boolean;
+}
+
+/**
+ * Forward attempt-adjudication events as MCP progress notifications. One
+ * progress step per juror verdict and one for the judge; token events are
+ * not forwarded. Returns a detach function.
+ */
+export function wireAdjudicationProgress(opts: WireAdjudicationProgressOptions): () => void {
+  const { engine, sendNotification, progressToken, jurorCount, maxRounds, judgeEnabled } = opts;
+  const total = jurorCount * maxRounds + (judgeEnabled ? 1 : 0);
+  let progress = 0;
+  const notify = (message: string, increment = 0): void => {
+    progress += increment;
+    void sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress, total, message },
+    }).catch(() => {
+      /* client may have disconnected */
+    });
+  };
+
+  const handlers = {
+    roundStart: (e: Parameters<Parameters<typeof engine.on<"roundStart">>[1]>[0]) => {
+      notify(`Round ${e.round} (${e.kind}) — ${e.jurorIds.length} jurors comparing attempts`);
+    },
+    jurorComplete: (e: Parameters<Parameters<typeof engine.on<"jurorComplete">>[1]>[0]) => {
+      const v = e.verdict;
+      const tag =
+        v.status === "valid"
+          ? `ranked (${v.verifiedFindings.length} verified finding(s), ${v.droppedFindings.length} dropped)`
+          : `${v.status}: ${v.abstainReason ?? ""}`;
+      notify(`  ${v.jurorId} ${tag} (${v.durationMs}ms)`, 1);
+    },
+    roundComplete: (e: Parameters<Parameters<typeof engine.on<"roundComplete">>[1]>[0]) => {
+      const w = e.agreement.kendallW;
+      notify(
+        `Round ${e.round} complete — agreement W=${w === null ? "n/a" : w.toFixed(2)}, ${e.agreement.votes} vote(s)`,
+      );
+    },
+    rebuttalTriggered: (e: Parameters<Parameters<typeof engine.on<"rebuttalTriggered">>[1]>[0]) => {
+      notify(
+        `Jurors split (W=${e.kendallW.toFixed(2)} < ${e.threshold}); rebuttal round ${e.round}`,
+      );
+    },
+    synthesisStart: (e: Parameters<Parameters<typeof engine.on<"synthesisStart">>[1]>[0]) => {
+      notify(`Judge synthesis starting (${e.modelId})…`);
+    },
+    synthesisComplete: () => {
+      notify("Judge synthesis complete", 1);
+    },
+    budgetStop: (e: Parameters<Parameters<typeof engine.on<"budgetStop">>[1]>[0]) => {
+      notify(`Stopped: ${e.reason} — returning a partial result`);
+    },
+  } as const;
+
+  engine.on("roundStart", handlers.roundStart);
+  engine.on("jurorComplete", handlers.jurorComplete);
+  engine.on("roundComplete", handlers.roundComplete);
+  engine.on("rebuttalTriggered", handlers.rebuttalTriggered);
+  engine.on("synthesisStart", handlers.synthesisStart);
+  engine.on("synthesisComplete", handlers.synthesisComplete);
+  engine.on("budgetStop", handlers.budgetStop);
+
+  return () => {
+    engine.off("roundStart", handlers.roundStart);
+    engine.off("jurorComplete", handlers.jurorComplete);
+    engine.off("roundComplete", handlers.roundComplete);
+    engine.off("rebuttalTriggered", handlers.rebuttalTriggered);
+    engine.off("synthesisStart", handlers.synthesisStart);
+    engine.off("synthesisComplete", handlers.synthesisComplete);
+    engine.off("budgetStop", handlers.budgetStop);
   };
 }

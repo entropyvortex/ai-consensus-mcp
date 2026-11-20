@@ -256,3 +256,42 @@ export function normalizeCliStdout(args: {
   const usage = readUsage(parseCliJson(args.stdout));
   return { content: `${body}${trailer}`, source, ...(usage ? { usage } : {}) };
 }
+
+/**
+ * JSON mode: the caller supplied its own JSON Schema (e.g. an adjudication
+ * juror verdict), so the answer is returned as JSON text with no confidence
+ * trailer and no neutralization. Prefers the CLI's `structured_output`;
+ * falls back to a `result` / `text` / `answer` string, then to the object
+ * itself when the CLI printed the answer object directly.
+ */
+export function normalizeCliJsonStdout(args: { driver: string; stdout: string }): {
+  content: string;
+  usage?: TokenUsage;
+} {
+  const parsed = parseCliJson(args.stdout);
+  const obj = asRecord(parsed);
+  if (!obj) {
+    if (args.stdout.trim() === "")
+      throw new Error(`cli driver ${args.driver} returned an empty answer`);
+    throw new Error(
+      `cli driver ${args.driver} returned output that is not JSON: ${clipForError(args.stdout)}`,
+    );
+  }
+  const subtype = typeof obj["subtype"] === "string" ? obj["subtype"] : "";
+  if (obj["is_error"] === true || subtype.startsWith("error")) {
+    const detail = subtype || (typeof obj["error"] === "string" ? obj["error"] : "");
+    throw new Error(
+      `cli driver ${args.driver} returned an error result${detail ? `: ${detail}` : ""}`,
+    );
+  }
+  const usage = readUsage(parsed);
+  const structured = asRecord(obj["structured_output"] ?? obj["structuredOutput"]);
+  let content: string;
+  if (structured) content = JSON.stringify(structured);
+  else if (typeof obj["result"] === "string") content = obj["result"];
+  else if (typeof obj["text"] === "string") content = obj["text"];
+  else if (typeof obj["answer"] === "string") content = obj["answer"];
+  else content = JSON.stringify(obj);
+  if (content.trim() === "") throw new Error(`cli driver ${args.driver} returned an empty answer`);
+  return { content, ...(usage ? { usage } : {}) };
+}

@@ -2,8 +2,7 @@
 // Consensus caller — HTTP adapter or a registered CLI oracle
 // ─────────────────────────────────────────────────────────────
 // HTTP never acquires the process CLI gate. A CLI call with no gate
-// throws a seat Error before spawn. Codex has no spawn path: resolve refuses
-// a seat that uses it, and an unregistered driver throws a seat Error.
+// throws a seat Error before spawn. An unregistered driver throws a seat Error.
 
 import type { ModelCaller, ModelCallRequest } from "ai-consensus-core";
 import { createOpenAICompatibleCaller } from "./adapter.js";
@@ -25,11 +24,26 @@ export interface McpServerDeps extends CliRuntimeDeps {
    * `createMcpServer`. This module does not construct a gate.
    */
   cliGate?: CliGate;
+  /**
+   * Enables consensus_list_attempts and consensus_compare_attempts. Set by
+   * the stdio entry point only: these tools read local repositories, so
+   * remote (HTTP / Workers) callers never get them.
+   */
+  repoTools?: {
+    /** Allow `testCommand` (executes repository code). Off unless --allow-test-command. */
+    allowTestCommand: boolean;
+  };
 }
 
 export interface ConsensusCallerOptions extends McpServerDeps {
   providers: Record<string, ResolvedProvider>;
   providerByParticipant: Record<string, string>;
+  /**
+   * JSON Schema a CLI seat must enforce for this request (e.g. an
+   * adjudication juror verdict), replacing the oracle schema. HTTP seats
+   * ignore it: their prompt carries the contract.
+   */
+  jsonSchemaFor?: (req: ModelCallRequest) => Record<string, unknown> | undefined;
 }
 
 function toolsRefused(req: ModelCallRequest): boolean {
@@ -102,7 +116,13 @@ export function createConsensusCaller(opts: ConsensusCallerOptions): ModelCaller
       if (req.signal?.aborted) {
         throw abortException();
       }
-      const result = await driver.run(provider, req, runtime);
+      const jsonSchema = opts.jsonSchemaFor?.(req);
+      const result = await driver.run(
+        provider,
+        req,
+        runtime,
+        jsonSchema ? { jsonSchema } : undefined,
+      );
       if (req.onToken) req.onToken(result.content);
       return result;
     } finally {

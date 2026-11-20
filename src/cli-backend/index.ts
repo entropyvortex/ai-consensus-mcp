@@ -1,14 +1,15 @@
-// CLI driver registry. Grok and Claude are registered. Codex has no spawn
-// path: resolve refuses a seat that uses a codex provider (not implemented).
+// CLI driver registry: grok, claude and codex.
 
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider, ResolvedProvider } from "../config.js";
 import { probeClaude, runClaude } from "./drivers/claude.js";
+import { probeCodex, runCodex } from "./drivers/codex.js";
 import { probeGrok, runGrok } from "./drivers/grok.js";
 import { isTruthyFlag } from "./flags.js";
 import { abortException } from "./gate.js";
 import { assertCliPlatform } from "./runner.js";
 import type {
+  CliRunOptions,
   CliRuntimeDeps,
   ReadinessState,
   SpawnLike,
@@ -26,12 +27,14 @@ export interface CliDriver {
     provider: ResolvedCliProvider,
     req: ModelCallRequest,
     deps: CliRuntimeDeps,
+    opts?: CliRunOptions,
   ) => Promise<ModelCallResponse>;
 }
 
 const DRIVERS: Partial<Record<ResolvedCliProvider["driver"], CliDriver>> = {
   grok: { probe: probeGrok, run: runGrok },
   claude: { probe: probeClaude, run: runClaude },
+  codex: { probe: probeCodex, run: runCodex },
 };
 
 export function getRegisteredDriver(driver: ResolvedCliProvider["driver"]): CliDriver | undefined {
@@ -176,6 +179,12 @@ export {
   CLAUDE_READINESS_TIMEOUT_MS,
   CLAUDE_SYSTEM_PROMPT,
 } from "./drivers/claude.js";
-export { CODEX_REQUIRED_GATE_FLAGS, codexDriverRefusalMessage } from "./drivers/codex.js";
+export {
+  CODEX_INSTALL_URL,
+  CODEX_LOGIN,
+  CODEX_PREAMBLE,
+  CODEX_REQUIRED_GATE_FLAGS,
+} from "./drivers/codex.js";
+export { DEPTH_ENV, currentDepth } from "./env.js";
 export { ORACLE_JSON_SCHEMA_TEXT } from "./normalize.js";
-export type { CliRuntimeDeps, ReadinessState, SpawnLike } from "./runner.js";
+export type { CliRunOptions, CliRuntimeDeps, ReadinessState, SpawnLike } from "./runner.js";

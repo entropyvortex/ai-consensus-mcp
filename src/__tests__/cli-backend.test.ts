@@ -107,6 +107,8 @@ function readyCache(id = "grok-sub"): Map<string, ReadinessState> {
 }
 
 const ALLOWED_EXACT = new Set([
+  // Recursion guard set by buildChildEnv, not copied from the parent.
+  "AI_CONSENSUS_MCP_DEPTH",
   "PATH",
   "HOME",
   "USER",
@@ -318,6 +320,7 @@ describe("cli backend grok oracle", () => {
       expect(ALLOWED_EXACT.has(key) || /^LC_[A-Z0-9_]+$/.test(key)).toBe(true);
     }
     expect(env["GROK_DISABLE_AUTOUPDATER"]).toBe("1");
+    expect(env["AI_CONSENSUS_MCP_DEPTH"]).toBe("1");
     expect(env["LC_ALL"]).toBe("en_US.UTF-8");
     expect(env["PATH"]).toBe("/usr/bin");
     for (const banned of [
@@ -756,11 +759,11 @@ describe("cli backend grok oracle", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves codex unregistered", async () => {
+  it("leaves an unknown driver unregistered", async () => {
     let spawns = 0;
     const { caller } = harness({
       providers: {
-        "codex-sub": grokProvider({ id: "codex-sub", driver: "codex", bin: "codex" }),
+        "codex-sub": grokProvider({ id: "codex-sub", driver: "nope" as never, bin: "nope" }),
       },
       map: { x: "codex-sub" },
       cache: new Map(),
@@ -769,7 +772,7 @@ describe("cli backend grok oracle", () => {
         return fakeChild();
       },
     });
-    await expect(caller(request("x"))).rejects.toThrow('cli driver "codex" is not registered');
+    await expect(caller(request("x"))).rejects.toThrow('cli driver "nope" is not registered');
     expect(spawns).toBe(0);
   });
 
@@ -1042,7 +1045,7 @@ describe("cli backend grok oracle", () => {
 
     const unregistered = await probeCliProviders({
       providers: {
-        "codex-sub": grokProvider({ id: "codex-sub", driver: "codex", bin: "codex" }),
+        "codex-sub": grokProvider({ id: "codex-sub", driver: "nope" as never, bin: "nope" }),
       },
       env: {},
       spawnImpl: () => {
@@ -1050,7 +1053,7 @@ describe("cli backend grok oracle", () => {
         return fakeChild();
       },
     });
-    expect(unregistered).toContain('cli driver "codex" is not registered');
+    expect(unregistered).toContain('cli driver "nope" is not registered');
     expect(spawns).toBe(0);
   });
 

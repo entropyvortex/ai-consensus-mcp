@@ -13,7 +13,12 @@ import { StringDecoder } from "node:string_decoder";
 import type { ModelCallResponse } from "ai-consensus-core";
 import { buildChildEnv } from "./env.js";
 import { abortException } from "./gate.js";
-import { CAPTURE_CHAR_CAP, normalizeCliStdout, type ConfidenceSource } from "./normalize.js";
+import {
+  CAPTURE_CHAR_CAP,
+  normalizeCliStdout,
+  type ConfidenceSource,
+  type NormalizedCli,
+} from "./normalize.js";
 
 export type SpawnLike = (
   command: string,
@@ -33,6 +38,16 @@ export type RmLike = (
 export type AccessLike = (path: string) => Promise<void>;
 
 export type ReadinessState = { ok: true } | { ok: false; message: string };
+
+/** Per-call driver options. */
+export interface CliRunOptions {
+  /**
+   * Enforce this JSON Schema on the answer instead of the oracle
+   * {answer, confidence} schema, and return the JSON as-is (no CONFIDENCE
+   * trailer). Used for adjudication juror verdicts.
+   */
+  jsonSchema?: Record<string, unknown>;
+}
 
 export interface CliRuntimeDeps {
   spawnImpl?: SpawnLike;
@@ -451,6 +466,18 @@ export interface OracleRunSpec {
   disableGrokAutoupdater: boolean;
   ownedFiles: readonly string[];
   buildArgv: (ctx: { scratchDir: string; promptPath: string }) => readonly string[];
+  /** Write extra scratch files before the spawn (e.g. a schema file). */
+  prepare?: (scratchDir: string) => Promise<void>;
+  /**
+   * Turn a successful run into the response. Defaults to the oracle
+   * normalizer (answer + CONFIDENCE trailer). JSON mode and codex supply
+   * their own.
+   */
+  finalize?: (ctx: {
+    stdout: string;
+    scratchDir: string;
+    log: (line: string) => void;
+  }) => Promise<Pick<NormalizedCli, "content" | "usage"> & { source: ConfidenceSource | "json" }>;
 }
 
 export async function runOracle(spec: OracleRunSpec): Promise<ModelCallResponse> {
@@ -468,7 +495,7 @@ export async function runOracle(spec: OracleRunSpec): Promise<ModelCallResponse>
   const started = now();
   let dir: string | undefined;
   let exitLabel = "none";
-  let confidenceSource: ConfidenceSource | "error" = "error";
+  let confidenceSource: ConfidenceSource | "json" | "error" = "error";
   let stdoutBytes = 0;
   let result: ModelCallResponse | undefined;
   let failure: unknown;
@@ -483,6 +510,7 @@ export async function runOracle(spec: OracleRunSpec): Promise<ModelCallResponse>
       mode: 0o600,
     });
     await chmod(promptPath, 0o600);
+    if (spec.prepare) await spec.prepare(dir);
     const captured = await spawnCaptured({
       driver: spec.driver,
       bin: spec.bin,
@@ -516,13 +544,15 @@ export async function runOracle(spec: OracleRunSpec): Promise<ModelCallResponse>
         `cli driver ${spec.driver} wrote unexpected files in the scratch dir: ${unexpected.join(", ")}`,
       );
     }
-    const normalized = normalizeCliStdout({
-      driver: spec.driver,
-      participantId: spec.participantId,
-      round: spec.round,
-      stdout: captured.stdout,
-      log,
-    });
+    const normalized = spec.finalize
+      ? await spec.finalize({ stdout: captured.stdout, scratchDir: dir, log })
+      : normalizeCliStdout({
+          driver: spec.driver,
+          participantId: spec.participantId,
+          round: spec.round,
+          stdout: captured.stdout,
+          log,
+        });
     confidenceSource = normalized.source;
     result = {
       content: normalized.content,

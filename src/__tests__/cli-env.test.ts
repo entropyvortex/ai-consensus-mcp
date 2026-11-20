@@ -6,7 +6,7 @@ import { buildChildEnv } from "../cli-backend/index.js";
 describe("cli child environment", () => {
   it("passes proxy settings through so a CLI works behind a proxy", () => {
     // Contract: the allowlist carries HTTP(S)_PROXY and NO_PROXY in both
-    // spellings; API keys stay out.
+    // spellings; API keys stay out; the recursion guard is always set.
     const env = buildChildEnv({
       HTTPS_PROXY: "http://proxy:3128",
       HTTP_PROXY: "http://proxy:3128",
@@ -23,6 +23,7 @@ describe("cli child environment", () => {
       https_proxy: "http://proxy:3128",
       http_proxy: "http://proxy:3128",
       no_proxy: "localhost",
+      AI_CONSENSUS_MCP_DEPTH: "1",
     });
   });
 });

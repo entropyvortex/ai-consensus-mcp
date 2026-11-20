@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), [SemVer](https
 
 ## [Unreleased]
 
+### Added — best-of-N attempt comparison
+
+- `consensus_compare_attempts` and `consensus_list_attempts` (stdio only; never offered over HTTP or Workers). The server computes each attempt's diff with `git` via `execFile`. Refs are validated with `rev-parse --verify --end-of-options`, and anything starting with `-` is refused. Read-only: `--no-ext-diff --no-textconv`, fsmonitor off, `GIT_OPTIONAL_LOCKS=0`. Uncommitted and untracked changes of a checked-out attempt are included. Lockfiles, generated files and binaries are skipped, and a per-attempt token budget drops whole files, listed for jurors and in the result.
+- The panel judges blind via `ai-consensus-core`'s `AdjudicationEngine` (one round plus judge by default; deadline and token ceiling return partial results; progress notifications per juror). The output is a short markdown verdict with the recommended ref first, plus the typed result in `structuredContent`.
+- Optional `testCommand` (argv, no shell, per worktree, timeout). It **executes repository code**, so it is refused unless `serve --allow-test-command`.
+- `skills/best-of-n-verdict/SKILL.md` (Agent Skills format) and a "Using with Emdash" README section.
+
+### Added — keyless operation inside agent hosts
+
+- **Codex CLI driver** (`driver: "codex"`), using `codex exec` with flags checked against the installed 0.170.0 help: `-c approval_policy="never"`, `--sandbox read-only`, shell tools disabled, `--ignore-user-config`, `--ephemeral`, prompt on stdin, answer read from `-o`, usage parsed from `--json` events. Not live-verified with a signed-in account.
+- `"modelId": "default"` on a codex or grok seat omits `-m`, so the CLI uses its own current model; the keyless panel uses it for both.
+- CLI drivers take a per-call JSON Schema (JSON mode), so juror verdicts are enforced by the CLI and returned untouched.
+- Recursion guard: every CLI child gets `AI_CONSENSUS_MCP_DEPTH`, and a server started with it ≥ 1 refuses to run.
+- `"envFile"` config key: a `KEY=VALUE` file read for provider keys. It must not be group- or world-accessible, and values are never logged; variables already in the environment win. File-loaded configs only.
+- The config wizard detects claude, grok and codex on `PATH` and offers a keyless panel first when creating a config.
+
+### Changed
+
+- A missing provider key now names the allowlist cause (agent hosts such as Emdash strip environment variables, generalaction/emdash#3103) and suggests `envFile`. The message still starts with the previous text.
+- Codex seats are no longer refused at resolve; the wizard offers codex.
+- `ai-consensus-core` dependency moved to `^0.13.0` (attempt adjudication).
+
 ### Changed — zod 4
 
 - `zod` moved from `^3.24.1` to `^4.6.7`, which clears the high-severity zod advisory fixed in 4.6.6. Code adapted to the zod 4 API (`error.issues`, the discriminated-union `error` option, nested `invalid_union` issues).

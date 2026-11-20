@@ -5,14 +5,13 @@
 // shape: provider credentials substituted, personas looked up,
 // participants materialised, defaults in place.
 
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute as isAbsolutePath, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute as isAbsolutePath, join, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import type { Participant, Persona } from "ai-consensus-core";
 import { PERSONAS, getPersonaById } from "./personas.js";
 import { MemoryConfigSchema, type MemoryConfig } from "./memory/types.js";
-import { codexDriverRefusalMessage } from "./cli-backend/drivers/codex.js";
 
 // ── Raw config shape (what lives on disk) ────────────────────
 
@@ -159,6 +158,13 @@ const RawConfigSchema = z
      * See docs/memory-layer.md + PREMORTEM-memory-layer.md.
      */
     memory: MemoryConfigSchema.optional(),
+    /**
+     * KEY=VALUE file the server reads for provider keys (`apiKeyEnv`), for
+     * hosts that start MCP servers with an allowlisted environment. Absolute,
+     * "~/"-prefixed, or relative to this config file. Must not be readable or
+     * writable by group or others. Variables already in the environment win.
+     */
+    envFile: z.string().min(1).optional(),
   })
   .strict();
 
@@ -294,7 +300,79 @@ export async function loadConfig(
 ): Promise<LoadedConfig> {
   const absolute = resolvePath(path);
   const raw = await readRawConfig(absolute);
-  return resolveConfigFromRaw(raw, absolute, options);
+  if (raw.envFile === undefined) return resolveConfigFromRaw(raw, absolute, options);
+  const fileVars = await loadEnvFile(resolveEnvFilePath(raw.envFile, absolute));
+  const env = { ...fileVars, ...(options?.env ?? process.env) };
+  return resolveConfigFromRaw(raw, absolute, { ...options, env });
+}
+
+/**
+ * Error for a provider whose key is missing. Names the variable and the
+ * provider, and the usual cause: agent hosts (e.g. Emdash) start MCP
+ * servers with an allowlisted environment, dropping shell-profile exports.
+ * Never includes a value.
+ */
+export function missingKeyMessage(providerId: string, variable: string, envFile?: string): string {
+  const remedy = envFile
+    ? `It is not in the environment or in envFile "${envFile}".`
+    : `Add ${variable}=… to a file only you can read (chmod 600) and set "envFile" in the config to its path, or set it in the MCP server entry's env.`;
+  return (
+    `ai-consensus-mcp: provider "${providerId}" requires env var ${variable} but it is not set. ` +
+    `Agent hosts such as Emdash start MCP servers with an allowlisted environment (generalaction/emdash#3103), ` +
+    `so a key exported in your shell profile may not reach this process. ${remedy}`
+  );
+}
+
+/** envFile path: absolute, "~/"-prefixed, or relative to the config file. */
+export function resolveEnvFilePath(envFile: string, configPath: string): string {
+  if (envFile.startsWith("~/")) return join(homedir(), envFile.slice(2));
+  return isAbsolutePath(envFile) ? envFile : resolvePath(dirname(configPath), envFile);
+}
+
+const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Read a KEY=VALUE env file. Refuses a file that is not a regular file,
+ * that another user owns, or whose mode grants group/other access.
+ * Supports blank lines, `#` comments, an optional `export ` prefix and
+ * single- or double-quoted values. Errors never include values.
+ */
+export async function loadEnvFile(path: string): Promise<Record<string, string>> {
+  let st;
+  try {
+    st = await stat(path);
+  } catch {
+    throw new Error(`ai-consensus-mcp: envFile ${path} could not be read.`);
+  }
+  if (!st.isFile()) throw new Error(`ai-consensus-mcp: envFile ${path} is not a regular file.`);
+  if ((st.mode & 0o077) !== 0) {
+    const mode = (st.mode & 0o777).toString(8).padStart(3, "0");
+    throw new Error(
+      `ai-consensus-mcp: envFile ${path} has mode ${mode}; it must not be readable or writable by group or others. Run: chmod 600 ${path}`,
+    );
+  }
+  const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+  if (uid !== undefined && st.uid !== uid) {
+    throw new Error(`ai-consensus-mcp: envFile ${path} is owned by another user.`);
+  }
+  const text = await readFile(path, "utf8");
+  const out: Record<string, string> = Object.create(null) as Record<string, string>;
+  text.split(/\r?\n/).forEach((rawLine, i) => {
+    const line = rawLine.trim();
+    if (line === "" || line.startsWith("#")) return;
+    const body = line.startsWith("export ") ? line.slice(7).trimStart() : line;
+    const eq = body.indexOf("=");
+    const key = eq === -1 ? "" : body.slice(0, eq).trim();
+    if (!ENV_KEY.test(key)) {
+      throw new Error(`ai-consensus-mcp: envFile ${path} line ${i + 1} is not KEY=VALUE.`);
+    }
+    let value = body.slice(eq + 1).trim();
+    const q = value[0];
+    if ((q === '"' || q === "'") && value.length >= 2 && value.endsWith(q))
+      value = value.slice(1, -1);
+    out[key] = value;
+  });
+  return out;
 }
 
 /**
@@ -307,6 +385,11 @@ export function loadConfigFromJson(
   options?: ResolveConfigOptions,
 ): LoadedConfig {
   const raw = parseRawConfigJson(text, sourceLabel);
+  if (raw.envFile !== undefined) {
+    throw new Error(
+      `ai-consensus-mcp: "envFile" is only supported when the config is loaded from a file; ${sourceLabel} must rely on the environment it is given.`,
+    );
+  }
   return resolveConfigFromRaw(raw, sourceLabel, options);
 }
 
@@ -345,9 +428,7 @@ export function resolveConfigFromRaw(
     }
     const apiKey = env[cfg.apiKeyEnv];
     if (!apiKey) {
-      throw new Error(
-        `ai-consensus-mcp: provider "${id}" requires env var ${cfg.apiKeyEnv} but it is not set.`,
-      );
+      throw new Error(missingKeyMessage(id, cfg.apiKeyEnv, raw.envFile));
     }
     providers[id] = {
       id,
@@ -408,15 +489,6 @@ export function resolveConfigFromRaw(
     providerByParticipant["judge"] = raw.judge.provider;
   }
 
-  // Codex has no driver yet: refuse a seat that would run on it. An unused
-  // codex provider entry loads and never spawns.
-  for (const [seatId, providerId] of Object.entries(providerByParticipant)) {
-    const provider = providers[providerId];
-    if (provider?.transport === "cli" && provider.driver === "codex") {
-      throw new Error(codexDriverRefusalMessage(providerId, seatId));
-    }
-  }
-
   const anyCli = Object.values(providers).some((provider) => provider.transport === "cli");
   const defaults: ResolvedDefaults = {
     maxRounds: raw.defaults?.maxRounds,
@@ -462,7 +534,7 @@ function cloudflareWorkersUserAgent(): boolean {
 function workersCliError(id: string): string {
   return (
     `ai-consensus-mcp: provider "${id}" uses transport "cli", which cannot spawn a local process on Cloudflare Workers. ` +
-    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok or claude CLI installed. " +
+    "Remove CLI providers from CONSENSUS_CONFIG_JSON, or run `ai-consensus-mcp serve` on a machine with the grok, claude or codex CLI installed. " +
     "HTTP providers in this file were not loaded because the config is rejected as a whole."
   );
 }
