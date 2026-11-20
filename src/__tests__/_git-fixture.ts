@@ -5,6 +5,7 @@
 //   attempt-b:  wrong sum; also a large file (for the token budget)
 //   attempt-c:  committed sum, checked out in a worktree with an uncommitted
 //               edit and an untracked file
+//   attempt-noisy: 60 vendored files and an agent settings file
 //   -evil:      refs/heads/-evil, a ref that looks like an option
 //   unrelated:  an orphan commit with no common ancestor
 
@@ -91,6 +92,20 @@ export function createGitFixture(): GitFixture {
   );
   git(root, "add", "-A");
   git(root, "commit", "-q", "-m", "attempt c");
+
+  git(root, "checkout", "-q", "main");
+  git(root, "checkout", "-q", "-b", "attempt-noisy");
+  for (let i = 0; i < 60; i++) {
+    write(root, `vendor/lib${String(i).padStart(3, "0")}.js`, `module.exports = ${i};\n`);
+  }
+  write(root, ".claude/settings.local.json", '{"permissions":{"allow":[]}}\n');
+  write(
+    root,
+    "src/sum.ts",
+    "export function sum(a: number, b: number): number {\n  return b + a; // DELTA\n}\n",
+  );
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "attempt noisy");
 
   git(root, "checkout", "-q", "main");
   write(root, "CHANGELOG.md", "later work on main\n");

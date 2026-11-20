@@ -248,6 +248,9 @@ export interface CompareRunContext {
   ) => ModelCaller;
 }
 
+/** Per-list cap for file paths in the structured result. */
+export const SUMMARY_PATHS_LIMIT = 50;
+
 export interface AttemptSummary {
   ref: string;
   label: string;
@@ -255,7 +258,23 @@ export interface AttemptSummary {
   worktree: string | null;
   includesUncommitted: boolean;
   diffTokens: number;
-  files: AttemptDiff["files"];
+  /** Lists capped at SUMMARY_PATHS_LIMIT entries; totals are exact. */
+  files: AttemptDiff["files"] & {
+    includedTotal: number;
+    skippedTotal: number;
+    truncatedTotal: number;
+  };
+}
+
+function summarizeFiles(files: AttemptDiff["files"]): AttemptSummary["files"] {
+  return {
+    included: files.included.slice(0, SUMMARY_PATHS_LIMIT),
+    skipped: files.skipped.slice(0, SUMMARY_PATHS_LIMIT),
+    truncated: files.truncated.slice(0, SUMMARY_PATHS_LIMIT),
+    includedTotal: files.included.length,
+    skippedTotal: files.skipped.length,
+    truncatedTotal: files.truncated.length,
+  };
 }
 
 export class ToolInputError extends Error {}
@@ -432,7 +451,7 @@ export async function runCompareAttempts(ctx: CompareRunContext) {
     worktree: diffs[i]!.worktree,
     includesUncommitted: diffs[i]!.includesUncommitted,
     diffTokens: diffs[i]!.tokens,
-    files: diffs[i]!.files,
+    files: summarizeFiles(diffs[i]!.files),
   }));
   const structured = {
     ...stripRaw(result),
@@ -521,11 +540,15 @@ export function formatVerdictMarkdown(
     lines.push("", `Judge: ${r.synthesis.majorityPosition.split("\n")[0]}`);
   }
   const coverage = attempts
-    .filter((a) => a.files.skipped.length > 0 || a.files.truncated.length > 0)
-    .map(
-      (a) =>
-        `${name(a.ref)}: ${a.files.included.length} file(s) shown, ${a.files.skipped.length} skipped (lockfile/generated/binary), ${a.files.truncated.length} over budget${a.files.truncated.length ? ` (${a.files.truncated.map((t) => t.path).join(", ")})` : ""}`,
-    );
+    .filter((a) => a.files.skippedTotal > 0 || a.files.truncatedTotal > 0)
+    .map((a) => {
+      const over = a.files.truncated.slice(0, 5).map((t) => t.path);
+      const more =
+        a.files.truncatedTotal > over.length
+          ? `, +${a.files.truncatedTotal - over.length} more`
+          : "";
+      return `${name(a.ref)}: ${a.files.includedTotal} file(s) shown, ${a.files.skippedTotal} skipped (lockfile/generated/binary/agent files), ${a.files.truncatedTotal} over budget${over.length ? ` (${over.join(", ")}${more})` : ""}`;
+    });
   if (coverage.length > 0) lines.push("", "Diff coverage:", ...coverage.map((c) => `- ${c}`));
   lines.push("", "Nothing was merged, checked out or deleted.");
   return lines.join("\n");

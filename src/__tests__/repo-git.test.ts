@@ -218,6 +218,28 @@ describe("computeAttemptDiff — contract: filtered, budgeted, whole files, omis
   });
 });
 
+describe("computeAttemptDiff — caps and blinding for noisy attempts", () => {
+  it("caps the jurors' header per reason, counts it against the budget, and withholds agent paths", async () => {
+    const sha = await resolveCommit(git, fx.root, "attempt-noisy");
+    const d = await computeAttemptDiff(git, fx.root, {
+      ref: "attempt-noisy",
+      sha,
+      baseSha: fx.baseSha,
+      worktree: null,
+      options: { tokenBudget: 2_000 },
+    });
+    expect(d.files.skipped).toHaveLength(61);
+    expect(d.files.skipped.filter((s) => s.reason === "agent-files")).toEqual([
+      { path: ".claude/settings.local.json", reason: "agent-files" },
+    ]);
+    expect(d.content).toContain("#   … and 40 more generated files");
+    expect(d.content).toContain("#   1 agent tool file(s) (paths withheld)");
+    expect(d.content).not.toContain(".claude");
+    expect(d.content).toContain("// DELTA");
+    expect(d.tokens).toBeLessThanOrEqual(2_000);
+  });
+});
+
 describe("classifyPath / parseNumstatZ", () => {
   it.each([
     ["pnpm-lock.yaml", "lockfile"],
@@ -228,6 +250,10 @@ describe("classifyPath / parseNumstatZ", () => {
     ["__snapshots__/a.test.ts.snap", "generated"],
     ["api/user.generated.ts", "generated"],
     ["src/dist.ts", null],
+    [".claude/settings.local.json", "agent-files"],
+    [".codex/notes.md", "agent-files"],
+    [".aider.chat.history.md", "agent-files"],
+    ["CLAUDE.md", null],
     ["src/index.ts", null],
   ])("%s → %s", (path, expected) => {
     expect(classifyPath(path)).toBe(expected);

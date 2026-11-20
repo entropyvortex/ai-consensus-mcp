@@ -117,8 +117,10 @@ export async function probeCodex(
       `cli driver codex: "${provider.bin} --version" failed (exit ${version.exitCode ?? "null"}). Install ${CODEX_INSTALL_URL} and run ${CODEX_LOGIN}.`,
     );
   }
-  // Documented: "Exits with 0 when logged in." Output is the auth mode;
-  // never echoed, as it can include an account identifier.
+  // Documented: "Exits with 0 when logged in" and prints the auth mode.
+  // Never echoed, as it can include an account identifier. The API-key
+  // check below matches text; the exact wording for an API-key login has
+  // not been observed (assumed to mention "API key").
   const status = await spawnCaptured({ ...common, argv: CODEX_LOGIN_STATUS_ARGV });
   if (status.exitCode !== 0) {
     throw new Error(`cli driver codex: not signed in. Run ${CODEX_LOGIN}.`);

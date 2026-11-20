@@ -18,7 +18,7 @@
     {
       "id": "grok",
       "provider": "grok-sub",
-      "modelId": "grok-4",
+      "modelId": "default",
       "personaId": "devils-advocate"
     },
     {

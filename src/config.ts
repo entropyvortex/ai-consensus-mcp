@@ -162,7 +162,8 @@ const RawConfigSchema = z
      * KEY=VALUE file the server reads for provider keys (`apiKeyEnv`), for
      * hosts that start MCP servers with an allowlisted environment. Absolute,
      * "~/"-prefixed, or relative to this config file. Must not be readable or
-     * writable by group or others. Variables already in the environment win.
+     * writable by group or others (not checked on Windows, which has no POSIX
+     * mode bits). Variables already in the environment win.
      */
     envFile: z.string().min(1).optional(),
   })
@@ -345,14 +346,16 @@ export async function loadEnvFile(path: string): Promise<Record<string, string>>
     throw new Error(`ai-consensus-mcp: envFile ${path} could not be read.`);
   }
   if (!st.isFile()) throw new Error(`ai-consensus-mcp: envFile ${path} is not a regular file.`);
-  if ((st.mode & 0o077) !== 0) {
+  // Windows has no POSIX mode bits (every file reports 0o666 or 0o444);
+  // access there is governed by ACLs, which this check cannot read.
+  if (process.platform !== "win32" && (st.mode & 0o077) !== 0) {
     const mode = (st.mode & 0o777).toString(8).padStart(3, "0");
     throw new Error(
       `ai-consensus-mcp: envFile ${path} has mode ${mode}; it must not be readable or writable by group or others. Run: chmod 600 ${path}`,
     );
   }
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-  if (uid !== undefined && st.uid !== uid) {
+  if (process.platform !== "win32" && uid !== undefined && st.uid !== uid) {
     throw new Error(`ai-consensus-mcp: envFile ${path} is owned by another user.`);
   }
   const text = await readFile(path, "utf8");

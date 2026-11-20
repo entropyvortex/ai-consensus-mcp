@@ -204,6 +204,21 @@ describe("runCompareAttempts", () => {
     await expect(run()).rejects.toThrow(re);
   });
 
+  it("caps file lists in the structured result and keeps exact totals", async () => {
+    const { run } = ctx({
+      input: input({ attempts: [{ ref: "attempt-a" }, { ref: "attempt-noisy" }] }),
+    });
+    const out = await run();
+    const noisy = (
+      out.structuredContent as {
+        attempts: { ref: string; files: { skipped: unknown[]; skippedTotal: number } }[];
+      }
+    ).attempts.find((a) => a.ref === "attempt-noisy")!;
+    expect(noisy.files.skipped).toHaveLength(50);
+    expect(noisy.files.skippedTotal).toBe(61);
+    expect(out.content[0]!.text).toContain("61 skipped");
+  });
+
   it("accepts an explicit base", async () => {
     const { run } = ctx({
       input: input({ base: "main", attempts: [{ ref: "attempt-a" }, { ref: "unrelated" }] }),

@@ -13,7 +13,7 @@ import { lstat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { Git, Worktree } from "./git.js";
 
-export type SkipReason = "lockfile" | "generated" | "binary" | "too-large";
+export type SkipReason = "lockfile" | "generated" | "binary" | "too-large" | "agent-files";
 
 export interface AttemptDiff {
   ref: string;
@@ -92,8 +92,27 @@ const GENERATED_SUFFIXES = [
   ".freezed.dart",
 ];
 
+/**
+ * Agent tool state (settings, notes, caches). Their paths alone can name
+ * the agent that produced an attempt, so they are skipped and jurors only
+ * see a count.
+ */
+const AGENT_DIRS: ReadonlySet<string> = new Set([
+  ".claude",
+  ".codex",
+  ".grok",
+  ".cursor",
+  ".gemini",
+  ".windsurf",
+  ".continue",
+  ".aider",
+  ".emdash",
+]);
+
 /** Path-based classification; `linguist-generated` is checked separately. */
-export function classifyPath(path: string): "lockfile" | "generated" | null {
+export function classifyPath(path: string): "lockfile" | "generated" | "agent-files" | null {
+  const first = path.split("/")[0] ?? "";
+  if (AGENT_DIRS.has(first) || first.startsWith(".aider")) return "agent-files";
   if (LOCKFILES.has(basename(path))) return "lockfile";
   const parts = path.split("/");
   if (parts.slice(0, -1).some((p) => GENERATED_DIRS.has(p))) return "generated";
@@ -243,13 +262,14 @@ export async function computeAttemptDiff(
     }
   }
 
-  // Whole files in path order until the budget is spent.
+  // Whole files in path order until the budget is spent. The (capped)
+  // omission header for skipped files counts against the budget too.
   patches.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   skipped.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const included: AttemptDiff["files"]["included"] = [];
   const truncated: AttemptDiff["files"]["truncated"] = [];
   const shown: string[] = [];
-  let remaining = options.tokenBudget;
+  let remaining = options.tokenBudget - estimateTokens(skippedHeader(skipped));
   for (const p of patches) {
     const t = estimateTokens(p.text);
     if (t <= remaining) {
@@ -261,7 +281,8 @@ export async function computeAttemptDiff(
     }
   }
 
-  const header = omissionHeader(skipped, truncated);
+  const top = skippedHeader(skipped);
+  const header = [top, truncatedHeader(truncated, top === "")].filter(Boolean).join("\n");
   const body = shown.length > 0 ? shown.join("\n") : "(no textual changes against the base)";
   const content = header ? `${header}\n${body}` : body;
   return {
@@ -276,20 +297,50 @@ export async function computeAttemptDiff(
   };
 }
 
-const REASON_LABEL: Record<SkipReason, string> = {
+const REASON_LABEL: Record<Exclude<SkipReason, "agent-files">, string> = {
   lockfile: "lockfile",
   generated: "generated",
   binary: "binary",
   "too-large": "too large",
 };
 
-function omissionHeader(
-  skipped: AttemptDiff["files"]["skipped"],
-  truncated: AttemptDiff["files"]["truncated"],
-): string {
-  if (skipped.length === 0 && truncated.length === 0) return "";
+/** Paths listed per reason in the jurors' header before "+N more". */
+export const HEADER_PATHS_PER_REASON = 20;
+
+/**
+ * Header naming skipped files, at most HEADER_PATHS_PER_REASON paths per
+ * reason. Agent tool files appear as a count only.
+ */
+function skippedHeader(skipped: AttemptDiff["files"]["skipped"]): string {
+  if (skipped.length === 0) return "";
   const lines = ["# Changed but not shown (paths only):"];
-  for (const s of skipped) lines.push(`#   ${REASON_LABEL[s.reason]}: ${s.path}`);
-  for (const t of truncated) lines.push(`#   over the size budget: ${t.path}`);
+  for (const reason of Object.keys(REASON_LABEL) as (keyof typeof REASON_LABEL)[]) {
+    const paths = skipped.filter((s) => s.reason === reason).map((s) => s.path);
+    for (const p of paths.slice(0, HEADER_PATHS_PER_REASON))
+      lines.push(`#   ${REASON_LABEL[reason]}: ${p}`);
+    if (paths.length > HEADER_PATHS_PER_REASON) {
+      lines.push(
+        `#   … and ${paths.length - HEADER_PATHS_PER_REASON} more ${REASON_LABEL[reason]} files`,
+      );
+    }
+  }
+  const agent = skipped.filter((s) => s.reason === "agent-files").length;
+  if (agent > 0) lines.push(`#   ${agent} agent tool file(s) (paths withheld)`);
+  return lines.join("\n");
+}
+
+function truncatedHeader(truncated: AttemptDiff["files"]["truncated"], withTitle = true): string {
+  if (truncated.length === 0) return "";
+  const lines = withTitle ? ["# Changed but not shown (paths only):"] : [];
+  lines.push(
+    ...truncated
+      .slice(0, HEADER_PATHS_PER_REASON)
+      .map((t) => `#   over the size budget: ${t.path}`),
+  );
+  if (truncated.length > HEADER_PATHS_PER_REASON) {
+    lines.push(
+      `#   … and ${truncated.length - HEADER_PATHS_PER_REASON} more files over the size budget`,
+    );
+  }
   return lines.join("\n");
 }
