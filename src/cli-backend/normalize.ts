@@ -1,7 +1,7 @@
 // Output parsing and confidence normalization for CLI oracles.
-// The engine scores the first `confidence:` hit. Structured confidence wins
-// over answer text, so marker-like phrases in the body are neutralized and
-// the only real marker is the trailer we append. participantId "judge"
+// The engine scores the last `confidence:` marker with digits (core 0.13+).
+// Structured confidence wins over answer text, so marker-like phrases in the
+// body are still neutralized and the only real marker is the trailer we append. participantId "judge"
 // selects JUDGE_CONFIDENCE. Phase "synthesis" does not: participant rounds
 // use that phase too.
 
