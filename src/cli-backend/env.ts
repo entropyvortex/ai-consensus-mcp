@@ -36,14 +36,29 @@ const EXACT_ALLOWLIST: ReadonlySet<string> = new Set([
 
 const LOCALE_KEY = /^LC_[A-Z0-9_]+$/;
 
+/**
+ * Recursion guard. Every CLI child gets this set to the server's depth + 1;
+ * a server that starts with it ≥ 1 refuses to serve (see cli/serve.ts), so
+ * a juror CLI that loads MCP servers cannot call this server again.
+ */
+export const DEPTH_ENV = "AI_CONSENSUS_MCP_DEPTH";
+
+/** This process's nesting depth (0 when unset or malformed). */
+export function currentDepth(env: NodeJS.ProcessEnv): number {
+  const raw = env[DEPTH_ENV];
+  const n = raw === undefined ? 0 : Number.parseInt(raw, 10);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
 function isAllowedChildEnvKey(key: string): boolean {
   return EXACT_ALLOWLIST.has(key) || LOCALE_KEY.test(key);
 }
 
 /**
  * Subset of `parent` whose keys are on the allowlist, plus an explicit
- * `GROK_DISABLE_AUTOUPDATER=1` for grok children. Never copies API keys
- * and never sets `GROK_SANDBOX`.
+ * `GROK_DISABLE_AUTOUPDATER=1` for grok children and the recursion guard
+ * `AI_CONSENSUS_MCP_DEPTH`. Never copies API keys and never sets
+ * `GROK_SANDBOX`.
  */
 export function buildChildEnv(
   parent: NodeJS.ProcessEnv,
@@ -58,5 +73,6 @@ export function buildChildEnv(
   if (options?.disableGrokAutoupdater) {
     child["GROK_DISABLE_AUTOUPDATER"] = "1";
   }
+  child[DEPTH_ENV] = String(currentDepth(parent) + 1);
   return child;
 }

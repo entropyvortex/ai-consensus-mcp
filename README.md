@@ -249,17 +249,55 @@ When this participant's turn arrives, the MCP host is asked to answer in charact
 
 ## Subscription CLI seats
 
-The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"` or `"driver": "claude"` to seat a signed-in CLI instead of a metered API key. The config wizard can add and edit those two drivers. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`. For grok, `authPath` is the file checked for sign-in readiness (default `~/.grok/auth.json`); it does not change which login grok uses, and the claude driver ignores it.
+The default transport is HTTP (`baseUrl` + `apiKeyEnv`). Omit `transport` and the provider stays HTTP. Set `"transport": "cli"` with `"driver": "grok"`, `"driver": "claude"` or `"driver": "codex"` to seat a signed-in CLI instead of a metered API key. The config wizard can add and edit all three drivers, and when no config exists yet it detects these CLIs on `PATH` and offers a keyless panel built from them first. Its HTTP form is never opened for a CLI provider, so a save cannot turn `transport: "cli"` into `baseUrl` + `apiKeyEnv`. For grok, `authPath` is the file checked for sign-in readiness (default `~/.grok/auth.json`); it does not change which login grok uses, and the claude driver ignores it.
 
 Each CLI call is a text oracle: a fresh temp directory, an allowlisted child environment (API keys are not copied), and a 120s timeout. Claude denies built-in tools (`--tools ""` and `--restricted`). Grok denies subagents (`--no-subagents`) and web search (`--disable-web-search`) only. Grok's `--disallowed-tools` and `--deny` exist, but `--help` does not list tool names, so this version does not pass a guessed denylist. Other Grok tools are an accepted residual. `~/.grok/config.toml` can still enable tools; there is no executed flag that ignores that file. Writes outside the temp directory are not detected.
 
-Codex is not yet implemented; `driver: "codex"` is refused when a participant uses it. The wizard does not offer it, and editing an existing codex provider leaves the block unchanged.
+Codex runs `codex exec` with the flags checked against the installed `codex exec --help` (0.170.0): `-c approval_policy="never"`, `--sandbox read-only`, `--disable shell_tool --disable unified_exec`, `--ignore-user-config` (so `~/.codex/config.toml` and its MCP servers are not loaded; auth still comes from `CODEX_HOME`), `--ephemeral`, the prompt on stdin, and the answer read from `-o`. The readiness probe requires `codex login status` to succeed (documented: exit 0 when logged in) and refuses a status that mentions an API key; the exact wording codex prints for API-key logins has not been observed. Use `"modelId": "default"` with codex or grok to omit `-m` and let the CLI pick its own current model (model names rotate between CLI releases; grok 1.0.89 no longer lists `grok-4`). Grok seats carry the CLI's own agent context: in a live check each grok juror call reported about 47k input tokens for a two-line diff, which counts against `maxTokens`. The flags were accepted by a real `codex exec` run, but no signed-in answer has been observed yet.
+
+Every CLI child also gets `AI_CONSENSUS_MCP_DEPTH` set to one more than the server's own; a server that starts with it ≥ 1 refuses to run. Claude (`--strict-mcp-config`) and codex (`--ignore-user-config`) load no MCP servers at all. Grok has no such flag, but it passes its environment to the MCP servers it starts (observed with `grok mcp doctor` on 1.0.89), so a copy of this server started by a grok juror exits instead of recursing.
+
+For attempt comparison, CLI jurors run in JSON mode: the CLI enforces the juror verdict schema (`--json-schema`, or `--output-schema` for codex) instead of the `{answer, confidence}` oracle schema, and the JSON comes back untouched.
 
 CLI seats run only where the server process runs next to a signed-in CLI. For remote deployments (see [Using as a Grok Custom Connector](#using-as-a-grok-custom-connector)): Cloudflare Workers reject a `CONSENSUS_CONFIG_JSON` secret that contains any CLI provider when the config is resolved, and the error names the provider, so keep that secret HTTP-only. On Node, CLI seats are disabled in HTTP mode unless you pass `--allow-cli` to `serve --http`. A remote connector cannot see your local `grok login`; for a personal subscription seat, run `ai-consensus-mcp serve` on the machine where the CLI is signed in.
 
-Sizing uses an assumed 30 second median call (an assumption, not a measurement) and `cliMaxInFlight: 2`. Three participants, `maxRounds: 4`, and a judge are 13 calls, about 6 minutes. Early stop after round 2 is 7 calls, about 3 minutes. If every call hits the 120 second timeout those become about 24 minutes and about 12 minutes. The engine default `maxRounds` stays 4. [`consensus.config.subscription.example.json`](./consensus.config.subscription.example.json) sets `maxRounds: 2` and `cliMaxInFlight: 2` and seats grok, claude, and one HTTP provider. It does not seat Codex. HTTP panels are not queued behind the CLI gate.
+Sizing uses an assumed 30 second median call (an assumption, not a measurement) and `cliMaxInFlight: 2`. Three participants, `maxRounds: 4`, and a judge are 13 calls, about 6 minutes. Early stop after round 2 is 7 calls, about 3 minutes. If every call hits the 120 second timeout those become about 24 minutes and about 12 minutes. The engine default `maxRounds` stays 4. [`consensus.config.subscription.example.json`](./consensus.config.subscription.example.json) sets `maxRounds: 2` and `cliMaxInFlight: 2` and seats grok, claude, and one HTTP provider; a codex seat is added the same way with `"driver": "codex"`. HTTP panels are not queued behind the CLI gate.
 
 `bench` does not require a CLI and does not refuse to run when one is configured. Its stderr estimate is `cases × runs × ((participants × maxRounds + judge) + baseline + rubricCalls)`, an upper bound when early-stop fires. If any of those providers is CLI, stderr adds a subscription warning. A CLI judge is also the default baseline, and a CLI rubric evaluator is another spawn. An HTTP-only config never takes that warning.
+
+---
+
+## Comparing attempts (best-of-N)
+
+On stdio the server also offers two read-only tools for judging several attempts at one task, for example the branches of a best-of-N run, each in its own worktree off one base commit.
+
+- **`consensus_list_attempts`** lists branches (most recent first) with ahead/behind against a base (default `origin/HEAD`, then `main`, `master`, `HEAD`), the worktree each is checked out in, and its uncommitted change count. It assumes no branch naming scheme.
+- **`consensus_compare_attempts`** takes `task`, `attempts: [{ ref, label?, checks? }]` (2–6), and optional `repoPath` (default: the server's working directory), `base` (default: the attempts' merge-base), `panel` / `participantIds`, `judge`, `maxRounds` (default 1), `randomSeed`, `deadlineMs` (default 10 minutes), `maxTokens`, `diffTokenBudget` (default 12,000 per attempt) and `includeUncommitted` (default true).
+
+The server computes each diff itself with `git` through `execFile` (no shell). Refs are checked with `rev-parse --verify --end-of-options` and refused if they start with `-`. Diffs run with `--no-ext-diff --no-textconv`, fsmonitor off and `GIT_OPTIONAL_LOCKS=0`, so neither repository config nor the index is touched. A branch checked out in a worktree is compared with its uncommitted and untracked changes. Lockfiles, generated files (`dist/`, `*.min.js`, `linguist-generated`, …) and binaries are skipped. Whole files beyond the per-attempt budget are dropped. The jurors see a header listing everything left out, and the result lists it too. Diffs never pass through the calling agent's context.
+
+The panel then judges blind ([ai-consensus-core's `AdjudicationEngine`](https://github.com/entropyvortex/ai-consensus-core#attempt-adjudication)). Each juror sees neutral labels in its own shuffled order and returns a full ranking with findings that quote the diff. Quotes are checked against the diff; Borda count and Kendall's W decide; a rebuttal round runs only when `maxRounds` > 1 and the jurors split; the judge synthesizes. The tool returns a short markdown verdict with the recommended ref first, or "no clear winner" and why. `structuredContent` carries the typed result plus per-attempt diff coverage, without juror raw output or diff bodies. Progress notifications are sent per juror. At the deadline or token ceiling it returns the partial result.
+
+**`testCommand` executes repository code.** It is an argv array (no shell) run in each attempt's worktree with a timeout, and its exit status becomes a check (a failed check keeps an attempt from being recommended unless every attempt failed). It is refused unless the server was started with `serve --allow-test-command`. HTTP mode never offers the repository tools.
+
+---
+
+## Using with Emdash
+
+[Emdash](https://github.com/generalaction/emdash) runs coding-agent CLIs in git worktrees. With several attempts at one task side by side, an agent in any of them can call `consensus_compare_attempts` instead of you diffing branches by hand.
+
+1. **Add the server.** In Emdash open **Library → MCP → Custom MCP**, choose **stdio**, and set the command to `npx` with arguments `-y ai-consensus-mcp serve --config /absolute/path/to/consensus.config.json` (or the absolute path of an installed `ai-consensus-mcp`). Select the agents that should get it. Emdash writes the entry into each agent's own user-level config. The server reads the repository from its working directory, which is the attempt's worktree.
+2. **Add the skill.** Copy [`skills/best-of-n-verdict/`](./skills/best-of-n-verdict/SKILL.md) to `~/.agentskills/best-of-n-verdict/`, or create it under **Library → Skills → New Skill**. It tells the agent to list the attempts, compare them, report the verdict, and never merge or delete branches.
+3. **Credentials.** Emdash builds the agent environment from an allowlist, and MCP servers inherit that environment, so API keys exported in your shell profile do not reach the server ([generalaction/emdash#3103](https://github.com/generalaction/emdash/issues/3103)). Options, best first:
+   - **A keyless panel:** run `ai-consensus-mcp config` once. When claude, grok or codex is on `PATH` it offers a panel built from those signed-in CLIs, so no keys are needed. Sign-in is checked when the server starts.
+   - **`"envFile"`** in the config: a `KEY=VALUE` file the server reads itself. It must be `chmod 600`; group- or world-readable files are refused, and values are never logged. Variables already in the environment win.
+   - **The env fields of the Custom MCP entry,** which stores the secret in Emdash's settings.
+
+   A missing key fails with an error that names the variable, the provider and this cause.
+
+4. **Tool-call timeouts.** A comparison takes minutes (each juror is a full model call; the default deadline is 10 minutes). Codex gives an MCP tool call 60 seconds by default: add `tool_timeout_sec = 900` under the server's `[mcp_servers.<name>]` table in `~/.codex/config.toml`, where Emdash writes the entry. Claude Code's per-call limit is far longer, and its stdio idle limit (30 minutes) is reset by this server's progress notifications. Keep `deadlineMs` below the host's limit so you get the partial result instead of a host timeout. (Timeout values are from the Claude Code and Codex docs, read 2026-11-20.)
+
+Juror CLIs never start this server again: see the depth guard under [Subscription CLI seats](#subscription-cli-seats).
 
 ---
 
@@ -313,7 +351,7 @@ This server is a thin, faithful wrapper: it loads your config, builds the right 
 ## Limits & Non-Goals
 
 - **Transports:** stdio (local MCP hosts) and stateless Streamable HTTP (remote/Grok). No SSE-only or stateful session mode in v1.
-- No token-budget enforcement inside the tool — put alerts on your provider keys.
+- No token-budget enforcement inside the `consensus` tool — put alerts on your provider keys. `consensus_compare_attempts` takes `maxTokens` and `deadlineMs`.
 - Memory is plaintext on disk. Do not enable it for prompts containing secrets you do not want persisted locally. Unavailable on Cloudflare Workers.
 - Host sampling is currently reliable only in Claude Desktop.
 - Public HTTP instances require `CONSENSUS_HTTP_API_KEY` — `serve --http` refuses a non-loopback bind without it (override: `--allow-unauthenticated`).

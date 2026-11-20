@@ -365,11 +365,10 @@ describe("CLI provider resolve", () => {
   it("rejects CLI providers when allowCli is false and still loads HTTP-only configs", async () => {
     const cliPath = await writeConfig(cliPanel({ transport: "cli", driver: "claude" }));
     await expect(loadConfig(cliPath, { allowCli: false })).rejects.toThrow(WORKERS_CLI_ERROR);
-    // Contract: the remedy names only CLIs that have a driver; codex has none.
+    // Contract: the remedy names exactly the CLIs that have a driver.
     await expect(loadConfig(cliPath, { allowCli: false })).rejects.toThrow(
-      /machine with the grok or claude CLI installed/,
+      /machine with the grok, claude or codex CLI installed/,
     );
-    await expect(loadConfig(cliPath, { allowCli: false })).rejects.not.toThrow(/codex/);
 
     const httpPath = await writeConfig(VALID_CONFIG, "http.json");
     const http = await loadConfig(httpPath, { allowCli: false });

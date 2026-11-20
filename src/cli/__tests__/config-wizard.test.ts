@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -184,8 +184,7 @@ describe("config wizard", () => {
           throw new Error(`expected CLI driver prompt but got ${JSON.stringify(text)}`);
         }
         const values = (prompt.choices ?? []).map((choice) => choice.value);
-        expect(values).toEqual(["grok", "claude"]);
-        expect(values.includes("codex")).toBe(false);
+        expect(values).toEqual(["grok", "claude", "codex"]);
         return "grok";
       },
       answer(/Override the binary/, false),
@@ -254,40 +253,77 @@ describe("config wizard", () => {
     );
   });
 
-  // Contract: a CLI block whose driver the wizard does not offer (codex) is
-  // never rewritten by "edit". The wizard prints a note and leaves it as-is.
-  it("editing a codex provider leaves the block untouched and asks nothing", async () => {
+  // Contract: a new config with claude/grok/codex on PATH starts by offering
+  // a keyless panel; choosing it saves CLI-only providers that need no keys.
+  it("new config: offers a keyless panel from the CLIs on PATH and saves it", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    const bin = join(dir, "bin");
+    await mkdir(bin);
+    for (const name of ["claude", "codex"]) {
+      await writeFile(join(bin, name), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    }
+    vi.stubEnv("PATH", bin);
+    const path = join(dir, "new.config.json");
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    script([
+      (prompt) => {
+        expect(prompt.message).toMatch(/Found claude, codex on PATH/);
+        expect((prompt.choices ?? []).map((c) => c.value)).toEqual(["keyless", "template"]);
+        return "keyless";
+      },
+      answer(/What would you like to do/, "save"),
+    ]);
+
+    expect(await runConfig(["--config", path])).toBe(0);
+    expect(prompts.queue).toEqual([]);
+    const saved = RawConfigSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    expect(saved.providers).toEqual({
+      "claude-cli": { transport: "cli", driver: "claude" },
+      "codex-cli": { transport: "cli", driver: "codex" },
+    });
+    expect(saved.judge).toEqual({ provider: "claude-cli", modelId: "opus" });
+    const resolved = resolveConfigFromRaw(saved, path, { env: {} });
+    expect(resolved.participants).toHaveLength(3);
+    vi.unstubAllEnvs();
+  });
+
+  it("new config without any CLI on PATH starts from the API-key template without asking", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
+    vi.stubEnv("PATH", join(dir, "empty"));
+    const path = join(dir, "new.config.json");
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    script([answer(/What would you like to do/, "save")]);
+    expect(await runConfig(["--config", path])).toBe(0);
+    const saved = RawConfigSchema.parse(JSON.parse(await readFile(path, "utf8")));
+    expect(Object.values(saved.providers).every((p) => p.transport !== "cli")).toBe(true);
+    vi.unstubAllEnvs();
+  });
+
+  // Contract: codex is an offered driver now; accepting every default on an
+  // existing codex seat changes nothing.
+  it("editing a codex provider with defaults accepted round-trips", async () => {
     dir = await mkdtemp(join(tmpdir(), "ai-consensus-mcp-wizard-"));
     const path = join(dir, "consensus.config.json");
     const raw = mixedPanel();
     raw.providers["codex-sub"] = { transport: "cli", driver: "codex", bin: "codex" };
     await writeRawConfig(path, raw);
     const before = await readRawConfig(path);
-    const writes: string[] = [];
-    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
-      writes.push(String(chunk));
-      return true;
-    });
     script([
       answer(/What would you like to do/, "providers"),
       answer(/^Providers$/, "codex-sub"),
       answer(/Provider "codex-sub"/, "edit"),
+      acceptDefault(/Provider id/, "codex-sub"),
+      acceptDefault(/CLI driver/, "codex"),
+      acceptDefault(/Override the binary/, true),
+      acceptDefault(/Binary name or path/, "codex"),
+      acceptDefault(/Override timeoutMs/, false),
       answer(/^Providers$/, "__back__"),
       answer(/What would you like to do/, "save"),
     ]);
 
     expect(await runConfig(["--config", path])).toBe(0);
     expect(prompts.queue).toEqual([]);
-    const after = await readRawConfig(path);
-    expect(after.providers["codex-sub"]).toEqual({
-      transport: "cli",
-      driver: "codex",
-      bin: "codex",
-    });
-    expect(after.providers).toEqual(before.providers);
-    expect(writes.join("")).toMatch(
-      /"codex-sub" uses driver "codex", which the wizard does not offer[\s\S]*left unchanged/,
-    );
+    expect((await readRawConfig(path)).providers).toEqual(before.providers);
   });
 
   // Contract: accepting every default on an existing claude seat changes

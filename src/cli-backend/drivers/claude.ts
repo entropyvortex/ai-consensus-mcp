@@ -18,12 +18,13 @@ import { tmpdir } from "node:os";
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider } from "../../config.js";
 import { buildChildEnv } from "../env.js";
-import { ORACLE_JSON_SCHEMA_TEXT } from "../normalize.js";
+import { ORACLE_JSON_SCHEMA_TEXT, normalizeCliJsonStdout } from "../normalize.js";
 import {
   formatOraclePrompt,
   runOracle,
   spawnCaptured,
   type CliRuntimeDeps,
+  type CliRunOptions,
   type SpawnLike,
 } from "../runner.js";
 
@@ -74,13 +75,13 @@ function withClaudeEnv(parent: NodeJS.ProcessEnv, spawnImpl: SpawnLike | undefin
     base(command, args, { ...options, env: { ...options.env, ...extra } });
 }
 
-export function buildClaudeArgv(args: { modelId: string }): string[] {
+export function buildClaudeArgv(args: { modelId: string; jsonSchemaText?: string }): string[] {
   return [
     "-p",
     "--output-format",
     "json",
     "--json-schema",
-    ORACLE_JSON_SCHEMA_TEXT,
+    args.jsonSchemaText ?? ORACLE_JSON_SCHEMA_TEXT,
     "--system-prompt",
     CLAUDE_SYSTEM_PROMPT,
     "--model",
@@ -208,8 +209,10 @@ export async function runClaude(
   provider: ResolvedCliProvider,
   req: ModelCallRequest,
   deps: CliRuntimeDeps,
+  opts?: CliRunOptions,
 ): Promise<ModelCallResponse> {
   const parentEnv = deps.env ?? process.env;
+  const jsonSchemaText = opts?.jsonSchema ? JSON.stringify(opts.jsonSchema) : undefined;
   return runOracle({
     driver: "claude",
     bin: provider.bin,
@@ -230,6 +233,16 @@ export async function runClaude(
     // Claude reads stdin and writes nothing to the scratch dir. The runner
     // still writes prompt.txt for every driver; it is owned implicitly.
     ownedFiles: [],
-    buildArgv: () => buildClaudeArgv({ modelId: req.modelId }),
+    buildArgv: () =>
+      buildClaudeArgv({ modelId: req.modelId, ...(jsonSchemaText ? { jsonSchemaText } : {}) }),
+    ...(jsonSchemaText
+      ? {
+          finalize: ({ stdout }) =>
+            Promise.resolve({
+              ...normalizeCliJsonStdout({ driver: "claude", stdout }),
+              source: "json" as const,
+            }),
+        }
+      : {}),
   });
 }

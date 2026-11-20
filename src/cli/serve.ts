@@ -12,7 +12,13 @@
 // clients (Grok custom connectors, etc.). See docs and examples/.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CliGate, probeCliProviders, type ReadinessState } from "../cli-backend/index.js";
+import {
+  CliGate,
+  DEPTH_ENV,
+  currentDepth,
+  probeCliProviders,
+  type ReadinessState,
+} from "../cli-backend/index.js";
 import { formatCliProviderStartupNote, loadConfig } from "../config.js";
 import { parseList } from "../http/host.js";
 import { startNodeHttpServer } from "../http/node-server.js";
@@ -31,6 +37,7 @@ export interface ServeArgs {
   allowedOrigins: string[] | undefined;
   allowUnauthenticated: boolean;
   allowCli: boolean;
+  allowTestCommand: boolean;
   maxConcurrentToolCalls: number | undefined;
   maxPromptChars: number | undefined;
   maxOutputTokens: number | undefined;
@@ -63,7 +70,12 @@ Flags:
                          refuses to start in that configuration.
       --allow-cli        Let HTTP mode run subscription CLI seats (transport
                          "cli"). Off by default: remote callers would drive the
-                         grok/claude CLIs logged in on this machine.
+                         grok/claude/codex CLIs logged in on this machine.
+      --allow-test-command
+                         Stdio only. Let consensus_compare_attempts run a
+                         caller-supplied testCommand in each attempt's
+                         worktree. THIS EXECUTES REPOSITORY CODE. Off by
+                         default.
       --allowed-hosts <list>
                          Comma-separated Host header values to accept (DNS-
                          rebinding defence). On a loopback bind, localhost,
@@ -92,7 +104,15 @@ Environment:
                          Required for any non-loopback --host (the server
                          refuses to start otherwise). Optional on loopback.
   <PROVIDER_API_KEY>     Each provider in the config declares an \`apiKeyEnv\`;
-                         that env var must be set.
+                         that env var must be set (or listed in the config's
+                         "envFile").
+  AI_CONSENSUS_MCP_DEPTH Set by this server on every CLI juror it spawns. A
+                         server that starts with it ≥ 1 refuses to run, so a
+                         juror cannot call this server recursively.
+
+Stdio mode also offers consensus_list_attempts and consensus_compare_attempts,
+which read the git repository at the working directory (or repoPath). HTTP
+mode never offers them.
 
 Stdio mode speaks JSON-RPC over stdout. Once initialised, a one-line ready
 message is written to stderr; stdout is reserved for the MCP protocol stream.
@@ -170,6 +190,7 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     allowedOrigins: undefined,
     allowUnauthenticated: false,
     allowCli: false,
+    allowTestCommand: false,
     maxConcurrentToolCalls: undefined,
     maxPromptChars: undefined,
     maxOutputTokens: undefined,
@@ -190,6 +211,10 @@ export function parseServeArgs(argv: readonly string[]): ServeArgs | Error {
     }
     if (arg === "--allow-cli") {
       out.allowCli = true;
+      continue;
+    }
+    if (arg === "--allow-test-command") {
+      out.allowTestCommand = true;
       continue;
     }
     const inline = arg.startsWith("--") && arg.includes("=");
@@ -221,6 +246,18 @@ export async function runServe(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  const depthRefusal = nestedServerRefusal(process.env);
+  if (depthRefusal) {
+    process.stderr.write(depthRefusal);
+    return 3;
+  }
+  if (parsed.http && parsed.allowTestCommand) {
+    process.stderr.write(
+      `${SERVER_NAME}: --allow-test-command applies to stdio only; HTTP mode never offers the repository tools.\n`,
+    );
+    return 2;
+  }
+
   const configPath = parsed.configPath ?? process.env["CONSENSUS_CONFIG"];
   if (!configPath) {
     process.stderr.write(
@@ -247,7 +284,26 @@ export async function runServe(argv: readonly string[]): Promise<number> {
     readinessCache: new Map<string, ReadinessState>(),
   };
 
-  return parsed.http ? runServeHttp(config, parsed, runtime) : runServeStdio(config, runtime);
+  return parsed.http
+    ? runServeHttp(config, parsed, runtime)
+    : runServeStdio(config, {
+        ...runtime,
+        repoTools: { allowTestCommand: parsed.allowTestCommand },
+      });
+}
+
+/**
+ * Recursion guard: a CLI juror inherits AI_CONSENSUS_MCP_DEPTH ≥ 1 from the
+ * server that spawned it, so a copy of this server started by that juror's
+ * own MCP config refuses to run. Returns the stderr message, or undefined.
+ */
+export function nestedServerRefusal(env: NodeJS.ProcessEnv): string | undefined {
+  const depth = currentDepth(env);
+  if (depth < 1) return undefined;
+  return (
+    `${SERVER_NAME}: refusing to start inside a consensus juror (${DEPTH_ENV}=${depth}); ` +
+    "a juror must not call this server recursively.\n"
+  );
 }
 
 /**

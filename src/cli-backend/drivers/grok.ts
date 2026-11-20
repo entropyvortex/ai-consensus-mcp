@@ -9,8 +9,8 @@ import { join } from "node:path";
 import type { ModelCallRequest, ModelCallResponse } from "ai-consensus-core";
 import type { ResolvedCliProvider } from "../../config.js";
 import { buildChildEnv } from "../env.js";
-import { ORACLE_JSON_SCHEMA_TEXT } from "../normalize.js";
-import { runOracle, spawnCaptured, type CliRuntimeDeps } from "../runner.js";
+import { ORACLE_JSON_SCHEMA_TEXT, normalizeCliJsonStdout } from "../normalize.js";
+import { runOracle, spawnCaptured, type CliRunOptions, type CliRuntimeDeps } from "../runner.js";
 
 export const GROK_SYSTEM_OVERRIDE =
   "You are a text-only consensus oracle. Obey the prompt file exactly. Do not use tools, do not edit files, do not browse.";
@@ -48,6 +48,7 @@ export function buildGrokArgv(args: {
   scratchDir: string;
   promptPath: string;
   modelId: string;
+  jsonSchemaText?: string;
 }): string[] {
   return [
     "--no-alt-screen",
@@ -59,7 +60,7 @@ export function buildGrokArgv(args: {
     "--output-format",
     "json",
     "--json-schema",
-    ORACLE_JSON_SCHEMA_TEXT,
+    args.jsonSchemaText ?? ORACLE_JSON_SCHEMA_TEXT,
     "--cwd",
     args.scratchDir,
     "--max-turns",
@@ -68,8 +69,8 @@ export function buildGrokArgv(args: {
     args.promptPath,
     "--system-prompt-override",
     GROK_SYSTEM_OVERRIDE,
-    "-m",
-    args.modelId,
+    // "default" lets grok use its own default model (names rotate between releases).
+    ...(args.modelId === "default" ? [] : ["-m", args.modelId]),
     "--no-plan",
   ];
 }
@@ -121,7 +122,9 @@ export async function runGrok(
   provider: ResolvedCliProvider,
   req: ModelCallRequest,
   deps: CliRuntimeDeps,
+  opts?: CliRunOptions,
 ): Promise<ModelCallResponse> {
+  const jsonSchemaText = opts?.jsonSchema ? JSON.stringify(opts.jsonSchema) : undefined;
   return runOracle({
     driver: "grok",
     bin: provider.bin,
@@ -140,6 +143,20 @@ export async function runGrok(
     disableGrokAutoupdater: true,
     ownedFiles: [],
     buildArgv: ({ scratchDir, promptPath }) =>
-      buildGrokArgv({ scratchDir, promptPath, modelId: req.modelId }),
+      buildGrokArgv({
+        scratchDir,
+        promptPath,
+        modelId: req.modelId,
+        ...(jsonSchemaText ? { jsonSchemaText } : {}),
+      }),
+    ...(jsonSchemaText
+      ? {
+          finalize: ({ stdout }) =>
+            Promise.resolve({
+              ...normalizeCliJsonStdout({ driver: "grok", stdout }),
+              source: "json" as const,
+            }),
+        }
+      : {}),
   });
 }

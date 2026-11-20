@@ -34,6 +34,7 @@ import {
 } from "../config.js";
 import { PERSONAS } from "../personas.js";
 import { SERVER_NAME } from "../version.js";
+import { detectInstalledClis, keylessStarterConfig } from "./keyless.js";
 
 // ── CLI args ─────────────────────────────────────────────────
 
@@ -55,13 +56,13 @@ Flags:
   -h, --help             Show this help.
 
 The editor walks you through every section — providers, participants,
-judge, defaults — with inline help and validation. Providers are HTTP
-by default. A CLI subscription seat (grok or claude) is a separate form
-and is never rewritten into baseUrl + apiKeyEnv. Codex is not offered:
-it is not yet implemented, and an existing codex block is left unchanged
-by "Edit". The whole config is
-checked against the Zod schema before saving; you can quit without
-saving at any time.
+judge, defaults — with inline help and validation. When no config exists
+yet and the claude, grok or codex CLI is on PATH, the editor first offers
+a keyless panel built from those CLIs (your signed-in subscriptions, no
+API keys). Providers are otherwise HTTP by default. A CLI subscription seat
+(grok, claude or codex) is a separate form and is never rewritten into
+baseUrl + apiKeyEnv. The whole config is checked against the Zod schema
+before saving; you can quit without saving at any time.
 `;
 
 function parseConfigArgs(argv: readonly string[]): ConfigArgs | Error {
@@ -170,6 +171,32 @@ function starterConfig(): RawConfig {
   };
 }
 
+/**
+ * New config: offer a keyless panel first when CLIs are on PATH, else the
+ * API-key template. Sign-in is checked by the server's readiness probe.
+ */
+async function chooseStarter(path: string): Promise<RawConfig> {
+  const clis = await detectInstalledClis();
+  if (clis.length === 0) {
+    process.stderr.write(`No config at ${path} — starting from a template.\n`);
+    return starterConfig();
+  }
+  const names = clis.map((c) => c.driver).join(", ");
+  const choice = await select<"keyless" | "template">({
+    message: `No config at ${path}. Found ${names} on PATH. Start from:`,
+    choices: [
+      {
+        name: `Keyless panel on your signed-in CLIs (${names}) — no API keys`,
+        value: "keyless",
+        description:
+          "Seats and judge run through the CLIs' own sign-in. Check each CLI is logged in.",
+      },
+      { name: "API-key template (OpenAI-compatible HTTP providers)", value: "template" },
+    ],
+  });
+  return choice === "keyless" ? keylessStarterConfig(clis.map((c) => c.driver)) : starterConfig();
+}
+
 // ── Entry point ──────────────────────────────────────────────
 
 const DEFAULT_CONFIG_PATH = resolvePath(homedir(), ".consensus.config.json");
@@ -201,8 +228,7 @@ export async function runConfig(argv: readonly string[]): Promise<number> {
       return 1;
     }
   } else {
-    process.stderr.write(`No config at ${path} — starting from a template.\n`);
-    config = starterConfig();
+    config = await chooseStarter(path);
     isNew = true;
   }
 
@@ -367,7 +393,7 @@ async function editProviders(config: RawConfig): Promise<RawConfig | undefined> 
         message: "Provider transport",
         choices: [
           { name: "HTTP (OpenAI-compatible API key) — default", value: "http" },
-          { name: "CLI subscription (grok or claude, no API key)", value: "cli" },
+          { name: "CLI subscription (grok, claude or codex, no API key)", value: "cli" },
         ],
         default: "http",
       });
@@ -507,12 +533,12 @@ async function editProviderForm(
   return { id: id.trim(), cfg };
 }
 
-const CLI_WIZARD_DRIVERS = ["grok", "claude"] as const;
+const CLI_WIZARD_DRIVERS = ["grok", "claude", "codex"] as const;
 type CliWizardDriver = (typeof CLI_WIZARD_DRIVERS)[number];
 type CliRawProvider = Extract<RawProviderConfig, { transport: "cli" }>;
 
 function isCliWizardDriver(driver: string): driver is CliWizardDriver {
-  return driver === "grok" || driver === "claude";
+  return (CLI_WIZARD_DRIVERS as readonly string[]).includes(driver);
 }
 
 /** Every driver the schema knows, offered or not. */
@@ -534,10 +560,8 @@ function asCliProvider(cfg: RawProviderConfig | undefined): CliRawProvider | und
 
 /**
  * CLI subscription form. Fields are driver, bin, timeoutMs, and (grok only)
- * authPath.
- * There is no apiKeyEnv and no baseUrl. Codex is not a choice: the driver is
- * not yet implemented, so this form must not present it as a working seat,
- * and an existing codex block is returned untouched (undefined).
+ * authPath. There is no apiKeyEnv and no baseUrl. A block whose driver the
+ * form does not offer is returned untouched (undefined).
  */
 async function editCliProviderForm(
   config: RawConfig,
@@ -553,8 +577,8 @@ async function editCliProviderForm(
     // The driver select has no entry for this driver, so any answer would
     // rewrite the seat. Leave the block exactly as it is on disk.
     process.stderr.write(
-      `${SERVER_NAME}: provider "${existingId ?? ""}" uses driver "${existing.driver}", which the wizard does not offer ` +
-        `(not yet implemented). The block was left unchanged; edit it by hand or remove it.\n`,
+      `${SERVER_NAME}: provider "${existingId ?? ""}" uses driver "${String(existing.driver)}", which the wizard does not offer. ` +
+        `The block was left unchanged; edit it by hand or remove it.\n`,
     );
     return undefined;
   }
@@ -573,7 +597,7 @@ async function editCliProviderForm(
   });
 
   const driver = await select<CliWizardDriver>({
-    message: "CLI driver (subscription seat, no API key). Codex is not yet implemented.",
+    message: "CLI driver (subscription seat, no API key).",
     choices: CLI_WIZARD_DRIVERS.map((name) => ({ name, value: name })),
     default: existing && isCliWizardDriver(existing.driver) ? existing.driver : "grok",
   });
